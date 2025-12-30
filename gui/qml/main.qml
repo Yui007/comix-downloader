@@ -86,9 +86,10 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 100
                     scanlators: chapterList.getScanlators()
+                    onSettingsClicked: settingsDrawer.isOpen = true
                     onDownloadClicked: {
                         var selected = chapterList.getSelectedChapters()
-                        DownloadBridge.startDownload(mangaCard.manga, selected, format, scanlator)
+                        DownloadBridge.startDownload(mangaCard.manga, selected, SettingsBridge.outputFormat, scanlator)
                     }
                 }
                 
@@ -101,6 +102,13 @@ ApplicationWindow {
                 }
             }
         }
+    }
+    
+    // SETTINGS DRAWER (overlay)
+    SettingsDrawer {
+        id: settingsDrawer
+        anchors.fill: parent
+        isOpen: false
     }
     
     // CONNECTIONS TO PYTHON

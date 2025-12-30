@@ -6,10 +6,10 @@ Rectangle {
     id: root
     
     property var scanlators: ["Any"]
-    property string format: "images"
     property string scanlator: "Any"
     
     signal downloadClicked()
+    signal settingsClicked()
     
     // Theme colors
     readonly property color bgCard: "#1C1C24"
@@ -17,6 +17,7 @@ Rectangle {
     readonly property color accentPrimary: "#E8A54B"
     readonly property color accentGradientEnd: "#D4873A"
     readonly property color textPrimary: "#F5F5F0"
+    readonly property color textSecondary: "#8B8B99"
     readonly property color textTertiary: "#5C5C66"
     readonly property color bgDeep: "#0A0A0C"
     
@@ -28,29 +29,40 @@ Rectangle {
         anchors.margins: 16
         spacing: 24
         
-        // FORMAT SELECTOR
-        ColumnLayout {
-            spacing: 4
-            Text { text: "Format"; font.pixelSize: 12; color: textTertiary }
-            ComboBox {
-                id: formatCombo
-                model: ["images", "pdf", "cbz"]
-                implicitWidth: 120; implicitHeight: 36
-                onCurrentTextChanged: root.format = currentText
-                
-                background: Rectangle { color: bgElevated; radius: 6; border.color: textTertiary; border.width: 1 }
-                contentItem: Text { text: formatCombo.currentText.toUpperCase(); font.pixelSize: 14; color: textPrimary; verticalAlignment: Text.AlignVCenter; leftPadding: 8 }
+        // SETTINGS BUTTON
+        Rectangle {
+            Layout.preferredWidth: 120
+            Layout.preferredHeight: 44
+            radius: 8
+            color: settingsArea.containsMouse ? bgElevated : "transparent"
+            border.color: textTertiary; border.width: 1
+            
+            Behavior on color { ColorAnimation { duration: 150 } }
+            
+            RowLayout {
+                anchors.centerIn: parent
+                spacing: 8
+                Text { text: "⚙️"; font.pixelSize: 16 }
+                Text { text: "Settings"; font.family: "Segoe UI"; font.pixelSize: 14; color: textSecondary }
+            }
+            
+            MouseArea {
+                id: settingsArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.settingsClicked()
             }
         }
         
         // SCANLATOR SELECTOR
         ColumnLayout {
             spacing: 4
-            Text { text: "Scanlator"; font.pixelSize: 12; color: textTertiary }
+            Text { text: "Scanlator Preference"; font.pixelSize: 12; color: textTertiary }
             ComboBox {
                 id: scanlatorCombo
                 model: root.scanlators
-                implicitWidth: 160; implicitHeight: 36
+                implicitWidth: 180; implicitHeight: 36
                 onCurrentTextChanged: root.scanlator = currentText
                 
                 background: Rectangle { color: bgElevated; radius: 6; border.color: textTertiary; border.width: 1 }
