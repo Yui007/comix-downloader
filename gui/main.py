@@ -5,6 +5,7 @@ PyQt6 + QML Application
 
 import sys
 import os
+import argparse
 from pathlib import Path
 
 # Add project root to path
@@ -27,8 +28,32 @@ def load_fonts():
             QFontDatabase.addApplicationFont(str(font_file))
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Comix Downloader GUI")
+    parser.add_argument(
+        "--cpu", 
+        action="store_true",
+        help="Use software (CPU) rendering instead of GPU"
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main entry point for the GUI application."""
+    args = parse_args()
+    
+    # Suppress Qt/QML warnings (they are harmless but noisy)
+    os.environ["QT_LOGGING_RULES"] = "*=false"  # Suppress all Qt debug/warning messages
+    
+    # Set rendering backend (must be set BEFORE QApplication)
+    if args.cpu:
+        # Full software rendering - works on all systems
+        os.environ["QT_QUICK_BACKEND"] = "software"
+        os.environ["QT_OPENGL"] = "software"
+        os.environ["QSG_RENDER_LOOP"] = "basic"
+        print("Using software (CPU) rendering")
+    
     # Enable high DPI scaling
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
     
@@ -71,3 +96,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

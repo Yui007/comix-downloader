@@ -6,9 +6,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue?style=for-the-badge)]()
 
-**A beautiful, interactive CLI manga downloader for [comix.to](https://comix.to)**
+**A beautiful manga downloader for [comix.to](https://comix.to) with GUI & CLI**
 
 *Fast concurrent downloads • Multiple formats • Scanlator selection*
+
+![GUI Screenshot](GUI.PNG)
 
 </div>
 
@@ -18,37 +20,13 @@
 
 | Feature | Description |
 |---------|-------------|
-| 🎨 **Beautiful CLI** | Rich terminal interface with ASCII banner, styled tables, and progress bars |
-| ⚡ **Concurrent Downloads** | Multi-threaded chapter and image downloads for blazing speed |
-| 📁 **Multiple Formats** | Export as **Images**, **PDF**, or **CBZ** (with ComicInfo.xml metadata) |
+| 🖥️ **Modern GUI** | Beautiful PyQt6/QML interface with dark theme |
+| 🎨 **Beautiful CLI** | Rich terminal interface with progress bars |
+| ⚡ **Concurrent Downloads** | Multi-threaded chapter and image downloads |
+| 📁 **Multiple Formats** | Export as **Images**, **PDF**, or **CBZ** |
 | 🎯 **Smart Selection** | Download single, range (`1-10`), or all chapters |
-| 🎨 **Scanlator Preference** | Choose your preferred scanlator group when duplicates exist |
-| 🔄 **Retry Logic** | Automatic retries with exponential backoff (2s → 4s → 8s) |
+| 🎨 **Scanlator Filter** | Filter and prefer specific scanlator groups |
 | ⚙️ **Persistent Settings** | All preferences saved to `config.json` |
-| 📝 **Optional Logging** | Debug logs disabled by default, toggle in settings |
-
----
-
-## 📸 Screenshots
-
-```
-╔═══════════════════════════════════════════════════════════════╗
-║                                                               ║
-║       ██████╗ ██████╗ ███╗   ███╗██╗██╗  ██╗                 ║
-║      ██╔════╝██╔═══██╗████╗ ████║██║╚██╗██╔╝                 ║
-║      ██║     ██║   ██║██╔████╔██║██║ ╚███╔╝                  ║
-║      ╚██████╗╚██████╔╝██║ ╚═╝ ██║██║██╔╝ ██╗                 ║
-║       ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═╝╚═╝  ╚═╝                 ║
-║                                                               ║
-║             🎨 Beautiful Manga Downloader CLI                 ║
-╚═══════════════════════════════════════════════════════════════╝
-
-╭─────────────────────── Main Menu ───────────────────────╮
-│   1 │ 📥 Download Manga by URL                          │
-│   2 │ ⚙️  Settings                                       │
-│   3 │ 🚪 Exit                                           │
-╰─────────────────────────────────────────────────────────╯
-```
 
 ---
 
@@ -67,48 +45,41 @@ cd comix-downloader
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Run the application
-python main.py
 ```
 
 ---
 
 ## 📖 Usage
 
-### Interactive Mode (Recommended)
+### GUI Mode (Recommended)
 
 ```bash
-python main.py
+# Run with GPU rendering (default)
+python gui/main.py
+
+# Run with CPU/Software rendering (for compatibility)
+python gui/main.py --cpu
 ```
 
-1. Select **"Download Manga by URL"**
-2. Paste a manga URL from comix.to
-3. Choose chapters: `5` (single), `1-10` (range), or `all`
-4. Select your preferred scanlator (if multiple available)
-5. Watch the progress bars as chapters download!
+1. Paste a manga URL from comix.to
+2. Click **FETCH** to load manga info and chapters
+3. Select chapters and choose scanlator preference/filter
+4. Click **DOWNLOAD CHAPTERS**
+5. Access **⚙️ Settings** to configure format, output path, workers
 
-### Command Line Mode
+### CLI Mode
 
 ```bash
-# Download specific chapters
-python main.py download "https://comix.to/title/abc-manga-name" -c "1-10" -f cbz
+# Interactive mode
+python main.py
 
-# Options
-  -c, --chapters    Chapter selection (e.g., "1-10", "all")
-  -f, --format      Output format: images, pdf, cbz
-  -o, --output      Output directory
+# Direct download
+python main.py download "https://comix.to/title/abc-manga-name" -c "1-10" -f cbz
 ```
 
 ---
 
 ## ⚙️ Settings
-
-Access via **Main Menu → Settings** or directly:
-
-```bash
-python main.py settings
-```
 
 | Setting | Description | Default |
 |---------|-------------|---------|
@@ -118,9 +89,6 @@ python main.py settings
 | Download Path | Where to save downloads | `downloads` |
 | Max Chapter Workers | Concurrent chapter downloads | `3` |
 | Max Image Workers | Concurrent image downloads per chapter | `5` |
-| Chapters Display Limit | Chapters shown in table (0=all) | `20` |
-
-Settings are saved to `config.json` and persist between sessions.
 
 ---
 
@@ -128,35 +96,31 @@ Settings are saved to `config.json` and persist between sessions.
 
 ```
 comix-downloader/
-├── main.py                 # Entry point
-├── config.json             # User settings
-├── requirements.txt        # Dependencies
-└── src/
-    ├── api/
-    │   └── comix.py        # API wrapper for comix.to
-    ├── core/
-    │   ├── models.py       # Data classes
-    │   └── downloader.py   # Threaded download engine
-    ├── formats/
-    │   ├── images.py       # Image saving
-    │   ├── pdf.py          # PDF generation
-    │   └── cbz.py          # CBZ with ComicInfo.xml
-    ├── cli/
-    │   ├── app.py          # Main CLI application
-    │   ├── menus.py        # Interactive menus
-    │   └── display.py      # Rich styling
-    └── utils/
-        ├── config.py       # Configuration manager
-        ├── retry.py        # Retry with backoff
-        └── logger.py       # Logging setup
+├── main.py                 # CLI entry point
+├── gui/
+│   ├── main.py             # GUI entry point
+│   ├── bridge/             # Python-QML bridges
+│   └── qml/                # QML UI components
+├── src/
+│   ├── api/comix.py        # API wrapper
+│   ├── core/               # Models & downloader
+│   ├── formats/            # PDF, CBZ, Images
+│   └── cli/                # CLI application
+└── config.json             # User settings
 ```
 
 ---
 
 ## 🔧 Dependencies
 
+**GUI:**
+- **[PyQt6](https://pypi.org/project/PyQt6/)** - Qt6 bindings for Python
+
+**CLI:**
 - **[Typer](https://typer.tiangolo.com/)** - CLI framework
 - **[Rich](https://rich.readthedocs.io/)** - Beautiful terminal output
+
+**Shared:**
 - **[Requests](https://requests.readthedocs.io/)** - HTTP library
 - **[Pillow](https://pillow.readthedocs.io/)** - Image processing
 - **[ReportLab](https://www.reportlab.com/)** - PDF generation
