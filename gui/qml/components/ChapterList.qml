@@ -6,6 +6,8 @@ Rectangle {
     id: root
     
     property var chapters: []
+    property var allChapters: []  // Store original list for filtering
+    property string currentFilter: "Any"
     
     // Theme colors
     readonly property color bgCard: "#1C1C24"
@@ -18,6 +20,26 @@ Rectangle {
     color: bgCard
     radius: 12
     
+    function setChapters(chapterList) {
+        allChapters = chapterList
+        applyFilter(currentFilter)
+    }
+    
+    function applyFilter(filter) {
+        currentFilter = filter
+        if (filter === "Any" || !filter) {
+            chapters = allChapters.slice()
+        } else {
+            var filtered = []
+            for (var i = 0; i < allChapters.length; i++) {
+                if (allChapters[i].group_name === filter) {
+                    filtered.push(allChapters[i])
+                }
+            }
+            chapters = filtered
+        }
+    }
+    
     function getSelectedChapters() {
         var selected = []
         for (var i = 0; i < chapters.length; i++) {
@@ -28,9 +50,9 @@ Rectangle {
     
     function getScanlators() {
         var scanlators = new Set()
-        for (var i = 0; i < chapters.length; i++) {
-            if (chapters[i].group_name && chapters[i].group_name !== "Unknown") {
-                scanlators.add(chapters[i].group_name)
+        for (var i = 0; i < allChapters.length; i++) {
+            if (allChapters[i].group_name && allChapters[i].group_name !== "Unknown") {
+                scanlators.add(allChapters[i].group_name)
             }
         }
         var result = ["Any"]
@@ -67,10 +89,16 @@ Rectangle {
             
             Item { Layout.fillWidth: true }
             
+            // Show filtered / total count
             Text {
-                text: chapters.length + " available"
+                text: {
+                    if (currentFilter !== "Any") {
+                        return chapters.length + " shown (of " + allChapters.length + ")"
+                    }
+                    return allChapters.length + " available"
+                }
                 font.pixelSize: 12
-                color: textTertiary
+                color: currentFilter !== "Any" ? accentPrimary : textTertiary
             }
         }
         
@@ -92,12 +120,20 @@ Rectangle {
                     var updated = root.chapters.slice()
                     updated[index].selected = !updated[index].selected
                     root.chapters = updated
+                    
+                    // Also update in allChapters
+                    for (var j = 0; j < root.allChapters.length; j++) {
+                        if (root.allChapters[j].chapter_id === modelData.chapter_id) {
+                            root.allChapters[j].selected = updated[index].selected
+                            break
+                        }
+                    }
                 }
             }
             
             Text {
                 anchors.centerIn: parent
-                text: "Enter a manga URL to see chapters"
+                text: currentFilter !== "Any" ? "No chapters from this scanlator" : "Enter a manga URL to see chapters"
                 font.pixelSize: 14
                 color: textTertiary
                 visible: root.chapters.length === 0
@@ -118,7 +154,16 @@ Rectangle {
                 MouseArea { id: allArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         var updated = root.chapters.slice()
-                        for (var i = 0; i < updated.length; i++) updated[i].selected = true
+                        for (var i = 0; i < updated.length; i++) {
+                            updated[i].selected = true
+                            // Also update in allChapters
+                            for (var j = 0; j < root.allChapters.length; j++) {
+                                if (root.allChapters[j].chapter_id === updated[i].chapter_id) {
+                                    root.allChapters[j].selected = true
+                                    break
+                                }
+                            }
+                        }
                         root.chapters = updated
                     }
                 }
@@ -133,7 +178,16 @@ Rectangle {
                 MouseArea { id: noneArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         var updated = root.chapters.slice()
-                        for (var i = 0; i < updated.length; i++) updated[i].selected = false
+                        for (var i = 0; i < updated.length; i++) {
+                            updated[i].selected = false
+                            // Also update in allChapters
+                            for (var j = 0; j < root.allChapters.length; j++) {
+                                if (root.allChapters[j].chapter_id === updated[i].chapter_id) {
+                                    root.allChapters[j].selected = false
+                                    break
+                                }
+                            }
+                        }
                         root.chapters = updated
                     }
                 }

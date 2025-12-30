@@ -83,13 +83,15 @@ ApplicationWindow {
                 
                 // DOWNLOAD CONTROLS
                 DownloadControls {
+                    id: downloadControls
                     Layout.fillWidth: true
                     Layout.preferredHeight: 100
                     scanlators: chapterList.getScanlators()
                     onSettingsClicked: settingsDrawer.isOpen = true
+                    onFilterChanged: (filter) => chapterList.applyFilter(filter)
                     onDownloadClicked: {
                         var selected = chapterList.getSelectedChapters()
-                        DownloadBridge.startDownload(mangaCard.manga, selected, SettingsBridge.outputFormat, scanlator)
+                        DownloadBridge.startDownload(mangaCard.manga, selected, SettingsBridge.outputFormat, scanlatorPreference)
                     }
                 }
                 
@@ -115,7 +117,7 @@ ApplicationWindow {
     Connections {
         target: MangaBridge
         function onMangaLoaded(info) { mangaCard.manga = info; mangaCard.visible = true }
-        function onChaptersLoaded(chapters) { chapterList.chapters = chapters }
+        function onChaptersLoaded(chapters) { chapterList.setChapters(chapters) }
         function onErrorOccurred(error) { console.log("Error:", error) }
     }
     

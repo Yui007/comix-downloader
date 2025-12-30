@@ -6,10 +6,12 @@ Rectangle {
     id: root
     
     property var scanlators: ["Any"]
-    property string scanlator: "Any"
+    property string scanlatorPreference: "Any"
+    property string scanlatorFilter: "Any"
     
     signal downloadClicked()
     signal settingsClicked()
+    signal filterChanged(string filter)
     
     // Theme colors
     readonly property color bgCard: "#1C1C24"
@@ -27,11 +29,11 @@ Rectangle {
     RowLayout {
         anchors.fill: parent
         anchors.margins: 16
-        spacing: 24
+        spacing: 16
         
         // SETTINGS BUTTON
         Rectangle {
-            Layout.preferredWidth: 120
+            Layout.preferredWidth: 100
             Layout.preferredHeight: 44
             radius: 8
             color: settingsArea.containsMouse ? bgElevated : "transparent"
@@ -41,9 +43,9 @@ Rectangle {
             
             RowLayout {
                 anchors.centerIn: parent
-                spacing: 8
-                Text { text: "⚙️"; font.pixelSize: 16 }
-                Text { text: "Settings"; font.family: "Segoe UI"; font.pixelSize: 14; color: textSecondary }
+                spacing: 6
+                Text { text: "⚙️"; font.pixelSize: 14 }
+                Text { text: "Settings"; font.family: "Segoe UI"; font.pixelSize: 13; color: textSecondary }
             }
             
             MouseArea {
@@ -55,18 +57,50 @@ Rectangle {
             }
         }
         
-        // SCANLATOR SELECTOR
+        // SCANLATOR PREFERENCE (for download priority)
         ColumnLayout {
             spacing: 4
-            Text { text: "Scanlator Preference"; font.pixelSize: 12; color: textTertiary }
+            Text { text: "Scanlator Preference"; font.pixelSize: 11; color: textTertiary }
             ComboBox {
-                id: scanlatorCombo
+                id: preferenceCombo
                 model: root.scanlators
-                implicitWidth: 180; implicitHeight: 36
-                onCurrentTextChanged: root.scanlator = currentText
+                implicitWidth: 150; implicitHeight: 36
+                onCurrentTextChanged: root.scanlatorPreference = currentText
                 
                 background: Rectangle { color: bgElevated; radius: 6; border.color: textTertiary; border.width: 1 }
-                contentItem: Text { text: scanlatorCombo.currentText; font.pixelSize: 14; color: textPrimary; verticalAlignment: Text.AlignVCenter; leftPadding: 8; elide: Text.ElideRight }
+                contentItem: Text { 
+                    text: preferenceCombo.currentText
+                    font.pixelSize: 13
+                    color: textPrimary
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 10
+                    elide: Text.ElideRight 
+                }
+            }
+        }
+        
+        // SCANLATOR FILTER (for filtering chapter list)
+        ColumnLayout {
+            spacing: 4
+            Text { text: "Scanlator Filter"; font.pixelSize: 11; color: textTertiary }
+            ComboBox {
+                id: filterCombo
+                model: root.scanlators
+                implicitWidth: 150; implicitHeight: 36
+                onCurrentTextChanged: {
+                    root.scanlatorFilter = currentText
+                    root.filterChanged(currentText)
+                }
+                
+                background: Rectangle { color: bgElevated; radius: 6; border.color: accentPrimary; border.width: 1 }
+                contentItem: Text { 
+                    text: filterCombo.currentText
+                    font.pixelSize: 13
+                    color: accentPrimary
+                    verticalAlignment: Text.AlignVCenter
+                    leftPadding: 10
+                    elide: Text.ElideRight 
+                }
             }
         }
         
@@ -74,7 +108,7 @@ Rectangle {
         
         // DOWNLOAD BUTTON
         Rectangle {
-            Layout.preferredWidth: 220
+            Layout.preferredWidth: 200
             Layout.preferredHeight: 48
             radius: 12
             
@@ -91,7 +125,7 @@ Rectangle {
                 anchors.centerIn: parent
                 spacing: 8
                 Text { text: "▶"; font.pixelSize: 14; color: bgDeep }
-                Text { text: "DOWNLOAD CHAPTERS"; font.family: "Segoe UI"; font.pixelSize: 12; font.weight: Font.Bold; color: bgDeep; font.letterSpacing: 1 }
+                Text { text: "DOWNLOAD"; font.family: "Segoe UI"; font.pixelSize: 13; font.weight: Font.Bold; color: bgDeep; font.letterSpacing: 1 }
             }
             
             MouseArea {

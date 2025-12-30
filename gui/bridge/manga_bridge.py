@@ -40,7 +40,7 @@ class FetchWorker(QThread):
                 "manga_id": manga.manga_id,
                 "hash_id": manga.hash_id,
                 "title": manga.title,
-                "alt_titles": manga.alt_titles,
+                "alt_titles": manga.alt_titles or [],
                 "manga_type": manga.manga_type or "Unknown",
                 "status": manga.status or "Unknown",
                 "poster_url": manga.poster_url or "",
@@ -49,6 +49,8 @@ class FetchWorker(QThread):
                 "follows_total": manga.follows_total or 0,
                 "is_nsfw": manga.is_nsfw,
                 "description": manga.description or "",
+                "latest_chapter": manga.latest_chapter or "",
+                "genres": manga.genres or [],
                 "manga_code": manga_code
             }
             
