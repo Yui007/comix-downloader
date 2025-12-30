@@ -165,16 +165,6 @@ Rectangle {
                     }
                 }
                 
-                // Chapters Display Limit
-                SettingItem {
-                    label: "Chapters Display Limit (0 = all)"
-                    NumberInput {
-                        value: SettingsBridge.getValue("chapters_display_limit") || 20
-                        minValue: 0; maxValue: 500
-                        onValueChanged: SettingsBridge.setValue("chapters_display_limit", value)
-                    }
-                }
-                
                 Item { Layout.fillHeight: true }
                 
                 // Reset Button
