@@ -130,21 +130,25 @@ Rectangle {
             }
             
             delegate: ChapterDelegate {
+                id: chapterDelegate
                 width: listView.width - 10
                 chapter: modelData
                 onToggled: {
-                    var updated = root.chapters.slice()
+                    var updated = chapterList.chapters.slice()
                     updated[index].selected = !updated[index].selected
-                    root.chapters = updated
+                    chapterList.chapters = updated
                     
                     // Also update in allChapters
-                    for (var j = 0; j < root.allChapters.length; j++) {
-                        if (root.allChapters[j].chapter_id === modelData.chapter_id) {
-                            root.allChapters[j].selected = updated[index].selected
+                    for (var j = 0; j < chapterList.allChapters.length; j++) {
+                        if (chapterList.allChapters[j].chapter_id === modelData.chapter_id) {
+                            chapterList.allChapters[j].selected = updated[index].selected
                             break
                         }
                     }
                 }
+                
+                // Reference the parent ChapterList
+                property var chapterList: root
             }
             
             Text {
