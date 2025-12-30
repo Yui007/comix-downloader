@@ -277,7 +277,8 @@ class SettingsMenu:
         while True:
             config = config_manager.get_download_config()
             
-            console.print("\n[bold magenta]⚙️  Settings Menu[/]\n")
+            display_limit = config_manager.get("chapters_display_limit", 20)
+            display_text = "Show All" if display_limit == 0 else str(display_limit)
             
             options = [
                 f"  [cyan bold]1[/] │ Output Format: [white]{config.output_format.value.upper()}[/]",
@@ -286,7 +287,8 @@ class SettingsMenu:
                 f"  [cyan bold]4[/] │ Download Path: [white]{config.download_path}[/]",
                 f"  [cyan bold]5[/] │ Max Chapter Workers: [white]{config.max_chapter_workers}[/]",
                 f"  [cyan bold]6[/] │ Max Image Workers: [white]{config.max_image_workers}[/]",
-                f"  [cyan bold]7[/] │ Reset to Defaults",
+                f"  [cyan bold]7[/] │ Chapters Display Limit: [white]{display_text}[/]",
+                f"  [cyan bold]8[/] │ Reset to Defaults",
                 f"  [cyan bold]0[/] │ Back to Main Menu",
             ]
             
@@ -299,7 +301,7 @@ class SettingsMenu:
             
             choice = Prompt.ask(
                 "\n[bold cyan]Select option to change[/]",
-                choices=["0", "1", "2", "3", "4", "5", "6", "7"],
+                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8"],
                 default="0"
             )
             
@@ -364,6 +366,18 @@ class SettingsMenu:
                 console.print(f"[green]Max image workers: {workers}[/]")
             
             elif choice == "7":
+                # Chapters display limit
+                console.print("[dim]Enter 0 to show all chapters[/]")
+                limit = IntPrompt.ask(
+                    "[cyan]Chapters to display in table (0=all, 10-100)[/]",
+                    default=config_manager.get("chapters_display_limit", 20)
+                )
+                limit = max(0, min(500, limit))
+                config_manager.set("chapters_display_limit", limit)
+                display_text = "Show All" if limit == 0 else str(limit)
+                console.print(f"[green]Chapters display limit: {display_text}[/]")
+            
+            elif choice == "8":
                 # Reset to defaults
                 if Confirm.ask("[yellow]Reset all settings to defaults?[/]", default=False):
                     config_manager.reset_to_defaults()

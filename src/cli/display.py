@@ -92,8 +92,13 @@ class Display:
         console.print(panel)
     
     @staticmethod
-    def show_chapters_table(chapters: list[Chapter], show_all: bool = False):
-        """Display chapters in a table format."""
+    def show_chapters_table(chapters: list[Chapter], display_limit: int = 20):
+        """Display chapters in a table format.
+        
+        Args:
+            chapters: List of chapters to display
+            display_limit: Max chapters to show (0 = show all)
+        """
         table = Table(
             title="📚 Available Chapters",
             box=box.ROUNDED,
@@ -106,7 +111,11 @@ class Display:
         table.add_column("Group", style="green")
         table.add_column("Pages", style="yellow", justify="right")
         
-        display_chapters = chapters if show_all else chapters[:20]
+        # Apply limit (0 = show all)
+        if display_limit > 0:
+            display_chapters = chapters[:display_limit]
+        else:
+            display_chapters = chapters
         
         for idx, ch in enumerate(display_chapters, 1):
             table.add_row(
@@ -119,9 +128,9 @@ class Display:
         
         console.print(table)
         
-        if not show_all and len(chapters) > 20:
+        if display_limit > 0 and len(chapters) > display_limit:
             console.print(
-                f"[dim]... and {len(chapters) - 20} more chapters. "
+                f"[dim]... and {len(chapters) - display_limit} more chapters. "
                 f"Total: {len(chapters)} chapters[/]"
             )
     

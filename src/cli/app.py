@@ -90,7 +90,8 @@ class ComixDownloaderApp:
                 Display.error("No chapters found")
                 return
             
-            Display.show_chapters_table(chapters)
+            display_limit = self.config_manager.get("chapters_display_limit", 20)
+            Display.show_chapters_table(chapters, display_limit=display_limit)
             
             # Select chapters
             selected = ChapterSelector.select_chapters(chapters)

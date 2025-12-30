@@ -6,5 +6,6 @@
   "max_image_workers": 6,
   "download_path": "downloads",
   "retry_count": 3,
-  "retry_delay": 2.0
+  "retry_delay": 2.0,
+  "chapters_display_limit": 0
 }

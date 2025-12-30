@@ -22,7 +22,8 @@ class ConfigManager:
         "max_image_workers": 5,
         "download_path": "downloads",
         "retry_count": 3,
-        "retry_delay": 2.0
+        "retry_delay": 2.0,
+        "chapters_display_limit": 20  # 0 = show all
     }
     
     def __init__(self, config_path: str | Path = "config.json"):
