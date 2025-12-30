@@ -117,16 +117,22 @@ class DownloadBridge(QObject):
         self._config_manager = ConfigManager()
     
     @pyqtSlot('QVariant', 'QVariant', str, str)
-    def startDownload(self, manga: dict, chapters: list, format_type: str, scanlator: str):
+    def startDownload(self, manga: dict, chapters, format_type: str, scanlator: str):
         """
         Start downloading selected chapters.
         
         Args:
             manga: Manga info dict
-            chapters: List of selected chapter dicts
+            chapters: List of selected chapter dicts (QJSValue from QML)
             format_type: Output format (images/pdf/cbz)
             scanlator: Preferred scanlator or empty for any
         """
+        # Convert QJSValue to Python list
+        if hasattr(chapters, 'toVariant'):
+            chapters = chapters.toVariant()
+        if not isinstance(chapters, list):
+            chapters = list(chapters) if chapters else []
+        
         if not chapters:
             self.errorOccurred.emit("No chapters selected")
             return
