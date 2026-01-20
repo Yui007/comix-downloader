@@ -64,25 +64,53 @@ class ComixAPI:
         )
     
     @classmethod
-    @retry_with_backoff()
-    def get_all_chapters(cls, manga_code: str) -> list[Chapter]:
-        """Fetch all chapters for a manga."""
-        chapters = []
-        page = 1
-        
-        while True:
-            url = f"{cls.BASE_URL}/manga/{manga_code}/chapters?limit=100&page={page}&order[number]=asc"
-            logger.debug(f"Fetching chapters page {page}")
-            
+    def _fetch_chapter_page(cls, manga_code: str, page: int) -> tuple[int, list[dict]]:
+        """Fetch a single page of chapters. Returns (page_number, items)."""
+        url = f"{cls.BASE_URL}/manga/{manga_code}/chapters?limit=100&page={page}&order[number]=asc"
+        try:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
             data = response.json()["result"]
-            items = data.get("items", [])
+            return page, data.get("items", [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch page {page}: {e}")
+            return page, []
+    
+    @classmethod
+    def get_all_chapters(cls, manga_code: str) -> list[Chapter]:
+        """Fetch all chapters for a manga using parallel requests."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        all_items = {}  # page -> items mapping
+        page_batch_size = 10  # Fetch 10 pages concurrently
+        current_batch_start = 1
+        found_empty = False
+        
+        logger.debug(f"Starting parallel chapter fetch for {manga_code}")
+        
+        while not found_empty:
+            # Fetch a batch of pages in parallel
+            pages_to_fetch = range(current_batch_start, current_batch_start + page_batch_size)
             
-            if not items:
-                break
+            with ThreadPoolExecutor(max_workers=page_batch_size) as executor:
+                futures = {
+                    executor.submit(cls._fetch_chapter_page, manga_code, page): page 
+                    for page in pages_to_fetch
+                }
+                
+                for future in as_completed(futures):
+                    page_num, items = future.result()
+                    if items:
+                        all_items[page_num] = items
+                    else:
+                        found_empty = True
             
-            for chap in items:
+            current_batch_start += page_batch_size
+        
+        # Build chapters list in correct order
+        chapters = []
+        for page_num in sorted(all_items.keys()):
+            for chap in all_items[page_num]:
                 group = chap.get("scanlation_group")
                 is_official = chap.get("is_official", 0)
                 
@@ -103,9 +131,8 @@ class ComixAPI:
                     group_name=group_name,
                     pages_count=chap.get("pages_count", 0)
                 ))
-            page += 1
         
-        logger.info(f"Found {len(chapters)} chapters")
+        logger.info(f"Found {len(chapters)} chapters (fetched {len(all_items)} pages in parallel)")
         return chapters
     
     @classmethod
