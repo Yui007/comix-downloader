@@ -22,6 +22,11 @@ logger = get_logger(__name__)
 class ImageDownloader:
     """Downloads images with threading and retry logic."""
     
+    HEADERS = {
+        "Referer": "https://comix.to/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0"
+    }
+    
     def __init__(self, config: DownloadConfig):
         self.config = config
         self.retrier = RetryableDownloader(
@@ -37,7 +42,7 @@ class ImageDownloader:
             Tuple of (index, image_bytes, error_message)
         """
         def _download():
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers=self.HEADERS, timeout=30)
             response.raise_for_status()
             return response.content
         

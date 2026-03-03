@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Comix Downloader - Beautiful Interactive CLI
 A modern manga downloader for comix.to with threading support.
