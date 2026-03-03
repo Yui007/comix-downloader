@@ -15,6 +15,10 @@ class ComixAPI:
     """API wrapper for comix.to"""
     
     BASE_URL = "https://comix.to/api/v2"
+    HEADERS = {
+        "Referer": "https://comix.to/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0"
+    }
     
     @staticmethod
     def extract_manga_code(url: str) -> str:
@@ -35,7 +39,7 @@ class ComixAPI:
         url = f"{cls.BASE_URL}/manga/{manga_code}/"
         logger.debug(f"Fetching manga info from: {url}")
         
-        response = requests.get(url, timeout=30)
+        response = requests.get(url, headers=cls.HEADERS, timeout=30)
         response.raise_for_status()
         data = response.json()["result"]
         
@@ -68,7 +72,7 @@ class ComixAPI:
         """Fetch a single page of chapters. Returns (page_number, items)."""
         url = f"{cls.BASE_URL}/manga/{manga_code}/chapters?limit=100&page={page}&order[number]=asc"
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, headers=cls.HEADERS, timeout=30)
             response.raise_for_status()
             data = response.json()["result"]
             return page, data.get("items", [])
@@ -142,7 +146,7 @@ class ComixAPI:
         url = f"{cls.BASE_URL}/chapters/{chapter_id}/"
         logger.debug(f"Fetching images for chapter {chapter_id}")
         
-        response = requests.get(url, timeout=30)
+        response = requests.get(url, headers=cls.HEADERS, timeout=30)
         response.raise_for_status()
         data = response.json()
         
