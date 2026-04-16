@@ -48,7 +48,7 @@ Rectangle {
     function getScanlators() {
         var scanlators = new Set()
         for (var i = 0; i < allChapters.length; i++) {
-            if (allChapters[i].group_name && allChapters[i].group_name !== "Unknown") {
+            if (allChapters[i].group_name) {
                 scanlators.add(allChapters[i].group_name)
             }
         }

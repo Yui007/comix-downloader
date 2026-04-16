@@ -1,7 +1,7 @@
 {
-  "output_format": "pdf",
+  "output_format": "images",
   "keep_images": true,
-  "enable_logs": false,
+  "enable_logs": true,
   "max_chapter_workers": 5,
   "max_image_workers": 6,
   "download_path": "downloads",

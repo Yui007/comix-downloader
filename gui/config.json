@@ -1,0 +1,12 @@
+{
+  "output_format": "images",
+  "keep_images": false,
+  "enable_logs": false,
+  "max_chapter_workers": 3,
+  "max_image_workers": 5,
+  "download_path": "downloads",
+  "retry_count": 3,
+  "retry_delay": 2.0,
+  "chapters_display_limit": 20,
+  "flaresolverr_url": "http://localhost:8191/v1"
+}
