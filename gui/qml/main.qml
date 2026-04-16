@@ -3,18 +3,18 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import "components"
+import "views"
 
 ApplicationWindow {
     id: root
     
-    // Theme colors
     readonly property color bgDeep: "#0A0A0C"
     readonly property color bgSurface: "#141419"
     
-    width: 1000
-    height: 700
-    minimumWidth: 800
-    minimumHeight: 600
+    width: 1100
+    height: 750
+    minimumWidth: 900
+    minimumHeight: 650
     visible: true
     title: "Comix Downloader"
     color: bgDeep
@@ -23,110 +23,92 @@ ApplicationWindow {
     
     property point dragStart: Qt.point(0, 0)
     
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
         spacing: 0
         
-        // TITLE BAR
-        TitleBar {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
+        // SIDEBAR NAVIGATION
+        SideBar {
+            id: sideBar
+            Layout.fillHeight: true
+            Layout.preferredWidth: 240
             
-            onMinimizeClicked: root.showMinimized()
-            onMaximizeClicked: root.visibility === Window.Maximized ? root.showNormal() : root.showMaximized()
-            onCloseClicked: Qt.quit()
-            onDragStarted: (pos) => root.dragStart = pos
-            onDragMoved: (pos) => { root.x += pos.x - root.dragStart.x; root.y += pos.y - root.dragStart.y }
+            onBrowseClicked: viewStack.currentIndex = 0
+            onDownloadsClicked: viewStack.currentIndex = 1
+            onSettingsClicked: settingsDrawer.isOpen = true
         }
         
-        // MAIN CONTENT
-        Rectangle {
+        // MAIN CONTENT AREA
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: bgSurface
+            spacing: 0
             
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 24
-                spacing: 16
+            // TITLE BAR (Modified for the new layout)
+            TitleBar {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 40
                 
-                // URL INPUT
-                UrlInput {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 56
-                    onFetchRequested: (url) => MangaBridge.fetchManga(url)
+                onMinimizeClicked: root.showMinimized()
+                onMaximizeClicked: root.visibility === Window.Maximized ? root.showNormal() : root.showMaximized()
+                onCloseClicked: Qt.quit()
+                onDragStarted: (pos) => root.dragStart = pos
+                onDragMoved: (pos) => { root.x += pos.x - root.dragStart.x; root.y += pos.y - root.dragStart.y }
+            }
+            
+            // VIEW STACK
+            StackLayout {
+                id: viewStack
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                currentIndex: 0
+                
+                BrowseView {
+                    id: browseView
                 }
                 
-                // CONTENT AREA
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: 16
-                    
-                    // MANGA CARD
-                    MangaCard {
-                        id: mangaCard
-                        Layout.preferredWidth: 280
-                        Layout.fillHeight: true
-                        visible: manga !== null
-                        manga: null
-                    }
-                    
-                    // CHAPTER LIST
-                    ChapterList {
-                        id: chapterList
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                    }
-                }
-                
-                // DOWNLOAD CONTROLS
-                DownloadControls {
-                    id: downloadControls
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 100
-                    scanlators: chapterList.getScanlators()
-                    onSettingsClicked: settingsDrawer.isOpen = true
-                    onFilterChanged: (filter) => chapterList.applyFilter(filter)
-                    onDownloadClicked: {
-                        var selected = chapterList.getSelectedChapters()
-                        DownloadBridge.startDownload(mangaCard.manga, selected, SettingsBridge.outputFormat, scanlatorPreference)
-                    }
-                }
-                
-                // PROGRESS PANEL
-                ProgressPanel {
-                    id: progressPanel
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: visible ? 120 : 0
-                    visible: false
+                DownloadsView {
+                    id: downloadsView
                 }
             }
         }
     }
     
-    // SETTINGS DRAWER (overlay)
+    // SETTINGS DRAWER (Global overlay)
     SettingsDrawer {
         id: settingsDrawer
         anchors.fill: parent
         isOpen: false
     }
     
-    // CONNECTIONS TO PYTHON
+    // CONNECTIONS TO PYTHON BRIDGES
     Connections {
         target: MangaBridge
-        function onMangaLoaded(info) { mangaCard.manga = info; mangaCard.visible = true }
-        function onChaptersLoaded(chapters) { chapterList.setChapters(chapters) }
-        function onErrorOccurred(error) { console.log("Error:", error) }
+        function onMangaLoaded(info) { browseView.getMangaCard().manga = info }
+        function onChaptersLoaded(chapters) { browseView.getChapterList().setChapters(chapters) }
+        function onErrorOccurred(error) { console.log("Manga Error:", error) }
     }
     
     Connections {
         target: DownloadBridge
-        function onDownloadStarted() { progressPanel.visible = true; progressPanel.reset() }
-        function onOverallProgress(current, total) { progressPanel.updateProgress(current, total) }
-        function onChapterProgress(name, current, total) { progressPanel.updateChapterProgress(name, current, total) }
-        function onChapterComplete(name, success, message) { progressPanel.setChapterStatus(name, success, message) }
-        function onDownloadFinished(successful, failed) { progressPanel.setFinished(successful, failed) }
+        function onDownloadStarted() { 
+            // Auto switch to downloads tab
+            sideBar.activeTab = 1
+            viewStack.currentIndex = 1
+            downloadsView.getProgressPanel().reset() 
+        }
+        function onOverallProgress(current, total) { 
+            downloadsView.getProgressPanel().updateProgress(current, total) 
+        }
+        function onChapterProgress(name, current, total) { 
+            downloadsView.getProgressPanel().updateChapterProgress(name, current, total) 
+        }
+        function onChapterComplete(name, success, message) { 
+            downloadsView.getProgressPanel().setChapterStatus(name, success, message) 
+        }
+        function onDownloadFinished(successful, failed) { 
+            downloadsView.getProgressPanel().setFinished(successful, failed) 
+        }
     }
     
     // STARTUP ANIMATION

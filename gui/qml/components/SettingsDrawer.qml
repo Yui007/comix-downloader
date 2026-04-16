@@ -84,8 +84,8 @@ Rectangle {
                             model: ["images", "pdf", "cbz"]
                             Rectangle {
                                 width: 75; height: 36; radius: 8
-                                color: SettingsBridge.outputFormat === modelData ? accentPrimary : bgElevated
-                                border.color: SettingsBridge.outputFormat === modelData ? accentPrimary : textTertiary
+                                color: (SettingsBridge ? SettingsBridge.outputFormat : "") === modelData ? accentPrimary : bgElevated
+                                border.color: (SettingsBridge ? SettingsBridge.outputFormat : "") === modelData ? accentPrimary : textTertiary
                                 border.width: 1
                                 
                                 Text { 
@@ -93,7 +93,7 @@ Rectangle {
                                     text: modelData.toUpperCase()
                                     font.pixelSize: 12
                                     font.weight: Font.Bold
-                                    color: SettingsBridge.outputFormat === modelData ? bgDeep : textSecondary 
+                                    color: (SettingsBridge ? SettingsBridge.outputFormat : "") === modelData ? bgDeep : textSecondary 
                                 }
                                 MouseArea { 
                                     anchors.fill: parent
@@ -109,8 +109,8 @@ Rectangle {
                 SettingItem {
                     label: "Keep Images After Conversion"
                     ToggleSwitch {
-                        checked: SettingsBridge.keepImages
-                        onToggled: SettingsBridge.setValue("keep_images", checked)
+                        checked: SettingsBridge ? SettingsBridge.keepImages : false
+                        onToggled: if (SettingsBridge) SettingsBridge.setValue("keep_images", checked)
                     }
                 }
                 
@@ -118,8 +118,8 @@ Rectangle {
                 SettingItem {
                     label: "Enable Debug Logs"
                     ToggleSwitch {
-                        checked: SettingsBridge.getValue("enable_logs") || false
-                        onToggled: SettingsBridge.setValue("enable_logs", checked)
+                        checked: SettingsBridge ? (SettingsBridge.getValue("enable_logs") || false) : false
+                        onToggled: if (SettingsBridge) SettingsBridge.setValue("enable_logs", checked)
                     }
                 }
                 
@@ -135,12 +135,12 @@ Rectangle {
                             anchors.fill: parent
                             anchors.leftMargin: 12; anchors.rightMargin: 12
                             verticalAlignment: Text.AlignVCenter
-                            text: SettingsBridge.downloadPath
+                            text: SettingsBridge ? SettingsBridge.downloadPath : ""
                             color: textPrimary
                             font.pixelSize: 14
                             clip: true
                             selectByMouse: true
-                            onEditingFinished: SettingsBridge.setValue("download_path", text)
+                            onEditingFinished: if (SettingsBridge) SettingsBridge.setValue("download_path", text)
                         }
                     }
                 }
@@ -149,9 +149,9 @@ Rectangle {
                 SettingItem {
                     label: "Max Chapter Workers (1-10)"
                     NumberInput {
-                        value: SettingsBridge.maxChapterWorkers
+                        value: SettingsBridge ? SettingsBridge.maxChapterWorkers : 3
                         minValue: 1; maxValue: 10
-                        onValueChanged: SettingsBridge.setValue("max_chapter_workers", value)
+                        onValueChanged: if (SettingsBridge) SettingsBridge.setValue("max_chapter_workers", value)
                     }
                 }
                 
@@ -159,9 +159,9 @@ Rectangle {
                 SettingItem {
                     label: "Max Image Workers (1-20)"
                     NumberInput {
-                        value: SettingsBridge.maxImageWorkers
+                        value: SettingsBridge ? SettingsBridge.maxImageWorkers : 5
                         minValue: 1; maxValue: 20
-                        onValueChanged: SettingsBridge.setValue("max_image_workers", value)
+                        onValueChanged: if (SettingsBridge) SettingsBridge.setValue("max_image_workers", value)
                     }
                 }
                 

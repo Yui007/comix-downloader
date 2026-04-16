@@ -90,7 +90,7 @@ Rectangle {
             Text {
                 text: {
                     if (currentFilter !== "Any") {
-                        return chapters.length + " shown (of " + allChapters.length + ")"
+                        return chapterModel.count + " shown (of " + allChapters.length + ")"
                     }
                     return allChapters.length + " available"
                 }
