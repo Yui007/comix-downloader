@@ -5,211 +5,216 @@ Ported from TypeScript implementation.
 
 import base64
 import urllib.parse
-from typing import List
-
 
 class ComixHash:
-    """Hash generator for Comix.to API requests."""
-
+    # [RC4 key, mutKey, prefKey] × 5 rounds
     KEYS = [
-        "13YDu67uDgFczo3DnuTIURqas4lfMEPADY6Jaeqky+w=", "yEy7wBfBc+gsYPiQL/4Dfd0pIBZFzMwrtlRQGwMXy3Q=", "yrP+EVA1Dw==",
-        "vZ23RT7pbSlxwiygkHd1dhToIku8SNHPC6V36L4cnwM=", "QX0sLahOByWLcWGnv6l98vQudWqdRI3DOXBdit9bxCE=", "WJwgqCmf",
-        "BkWI8feqSlDZKMq6awfzWlUypl88nz65KVRmpH0RWIc=", "v7EIpiQQjd2BGuJzMbBA0qPWDSS+wTJRQ7uGzZ6rJKs=", "1SUReYlCRA==",
-        "RougjiFHkSKs20DZ6BWXiWwQUGZXtseZIyQWKz5eG34=", "LL97cwoDoG5cw8QmhI+KSWzfW+8VehIh+inTxnVJ2ps=", "52iDqjzlqe8=",
-        "U9LRYFL2zXU4TtALIYDj+lCATRk/EJtH7/y7qYYNlh8=", "e/GtffFDTvnw7LBRixAD+iGixjqTq9kIZ1m0Hj+s6fY=", "xb2XwHNB"
+        "JxTcdyiA5GZxnbrmthXBQfU2IMTKcY1+3nNhbq98Sgo=",  # 0  RC4 key  round 1
+        "3PordjODbhqla382Cxapmo/1JiABJQcjiJj1+48gTJ4=",  # 1  mutKey   round 1
+        "OaKvnI5ARA==",                                   # 2  prefKey  round 1
+        "MHNBHYWA7lvy867fXgvGcJwWDk79KqUJUVFsh3RwnnI=",  # 3  RC4 key  round 2
+        "8i0Cru/VJBSVB2Y1GcMDVpzx2WepOcfnWdd81yxICl4=",  # 4  mutKey   round 2
+        "Fyskubz8VvA=",                                   # 5  prefKey  round 2
+        "B46L1x+UeWP+19cRpQ+OZvdLAK9EHID8g3mSgn57tew=",  # 6  RC4 key  round 3
+        "DTSTmUt6LpDUw9r1lSQqyb3YlFTzruT8tk8wUGkwehQ=",  # 7  mutKey   round 3
+        "vY/meeI=",                                       # 8  prefKey  round 3
+        "7xWfIF5THL5LAnRgAARg+4mjWHPU9n3PQwvzbaMNi+Q=",  # 9  RC4 key  round 4
+        "bewtiTuV+HJk56xxkf2iCljLgruCpBmN9BgE8i6gc9M=",  # 10 mutKey   round 4
+        "/Xcb2zAu8AU=",                                   # 11 prefKey  round 4
+        "WgeCQ3T8R51uTwVSiVa7Zy0dN6JOg6Z5JleMS+HV8Aw=",  # 12 RC4 key  round 5
+        "yXayUVFrrcW56jQCEfZzuCidjpnWKjTDUNT7XeX9i7k=",  # 13 mutKey   round 5
+        "tSLco2w=",                                       # 14 prefKey  round 5
     ]
 
-    @staticmethod
-    def encoded_keys() -> List[bytes]:
-        """Decode all keys from Base64."""
-        return [base64.b64decode(k) for k in ComixHash.KEYS]
+    @classmethod
+    def get_key_bytes(cls, index):
+        b64 = cls.KEYS[index] if index < len(cls.KEYS) else None
+        if b64 is None:
+            return []
+        try:
+            return [b & 0xFF for b in base64.b64decode(b64)]
+        except Exception:
+            return []
 
     @staticmethod
-    def rc4(key: bytes, data: bytes) -> bytearray:
-        """Standard RC4 encryption."""
+    def rc4(key, data):
+        if not key:
+            return data
         s = list(range(256))
         j = 0
         for i in range(256):
             j = (j + s[i] + key[i % len(key)]) % 256
             s[i], s[j] = s[j], s[i]
-        
-        i = 0
-        j = 0
-        out = bytearray()
-        for k in range(len(data)):
+        i = j = 0
+        out = []
+        for k in data:
             i = (i + 1) % 256
             j = (j + s[i]) % 256
             s[i], s[j] = s[j], s[i]
-            rnd = s[(s[i] + s[j]) % 256]
-            out.append(data[k] ^ rnd)
+            out.append(k ^ s[(s[i] + s[j]) % 256])
         return out
 
-    # Mutation functions
     @staticmethod
-    def mut_s(e: int) -> int: return (e + 143) % 256
-    @staticmethod
-    def mut_l(e: int) -> int: return ((e >> 1) | (e << 7)) & 0xff
-    @staticmethod
-    def mut_c(e: int) -> int: return (e + 115) % 256
-    @staticmethod
-    def mut_m(e: int) -> int: return e ^ 177
-    @staticmethod
-    def mut_f(e: int) -> int: return (e - 188 + 256) % 256
-    @staticmethod
-    def mut_g(e: int) -> int: return ((e << 2) | (e >> 6)) & 0xff
-    @staticmethod
-    def mut_h(e: int) -> int: return (e - 42 + 256) % 256
-    @staticmethod
-    def mut_dollar(e: int) -> int: return ((e << 4) | (e >> 4)) & 0xff
-    @staticmethod
-    def mut_b(e: int) -> int: return (e - 12 + 256) % 256
-    @staticmethod
-    def mut_underscore(e: int) -> int: return (e - 20 + 256) % 256
-    @staticmethod
-    def mut_y(e: int) -> int: return ((e >> 1) | (e << 7)) & 0xff
-    @staticmethod
-    def mut_k(e: int) -> int: return (e - 241 + 256) & 0xff
+    def get_mut_key(mk, idx):
+        return mk[idx % 32] if mk and (idx % 32) < len(mk) else 0
 
     @staticmethod
-    def get_mut_key(mk: bytes, idx: int) -> int:
-        return mk[idx % 32] if (len(mk) > 0 and idx % 32 < len(mk)) else 0
+    def op_shift_right7_left1(e):
+        return ((e >> 7) | (e << 1)) & 255
+
+    @staticmethod
+    def op_shift_left1_right7(e):
+        return ((e << 1) | (e >> 7)) & 255
+
+    @staticmethod
+    def op_shift_right2_left6(e):
+        return ((e >> 2) | (e << 6)) & 255
+
+    @staticmethod
+    def op_shift_left4_right4(e):
+        return ((e << 4) | (e >> 4)) & 255
+
+    @staticmethod
+    def op_shift_right4_left4(e):
+        return ((e >> 4) | (e << 4)) & 255
 
     @classmethod
-    def round1(cls, data: bytes, keys: List[bytes]) -> bytearray:
-        enc = cls.rc4(keys[0], data)
-        mut_key = keys[1]
-        pref_key = keys[2]
-        out = bytearray()
-
-        for i in range(len(enc)):
-            if i < 7 and i < len(pref_key):
-                out.append(pref_key[i])
-            v = enc[i] ^ cls.get_mut_key(mut_key, i)
-            
-            m = i % 10
-            if m == 0 or m == 9: v = cls.mut_c(v)
-            elif m == 1: v = cls.mut_b(v)
-            elif m == 2: v = cls.mut_y(v)
-            elif m == 3: v = cls.mut_dollar(v)
-            elif m == 4 or m == 6: v = cls.mut_h(v)
-            elif m == 5: v = cls.mut_s(v)
-            elif m == 7: v = cls.mut_k(v)
-            elif m == 8: v = cls.mut_l(v)
-            out.append(v & 0xff)
-        return out
-
-    @classmethod
-    def round2(cls, data: bytes, keys: List[bytes]) -> bytearray:
-        enc = cls.rc4(keys[3], data)
-        mut_key = keys[4]
-        pref_key = keys[5]
-        out = bytearray()
-
-        for i in range(len(enc)):
-            if i < 6 and i < len(pref_key):
-                out.append(pref_key[i])
-            v = enc[i] ^ cls.get_mut_key(mut_key, i)
-            
-            m = i % 10
-            if m == 0 or m == 8: v = cls.mut_c(v)
-            elif m == 1: v = cls.mut_b(v)
-            elif m == 2 or m == 6: v = cls.mut_dollar(v)
-            elif m == 3: v = cls.mut_h(v)
-            elif m == 4 or m == 9: v = cls.mut_s(v)
-            elif m == 5: v = cls.mut_k(v)
-            elif m == 7: v = cls.mut_underscore(v)
-            out.append(v & 0xff)
-        return out
-
-    @classmethod
-    def round3(cls, data: bytes, keys: List[bytes]) -> bytearray:
-        enc = cls.rc4(keys[6], data)
-        mut_key = keys[7]
-        pref_key = keys[8]
-        out = bytearray()
-
-        for i in range(len(enc)):
-            if i < 7 and i < len(pref_key):
-                out.append(pref_key[i])
-            v = enc[i] ^ cls.get_mut_key(mut_key, i)
-            
-            m = i % 10
-            if m == 0: v = cls.mut_c(v)
-            elif m == 1: v = cls.mut_f(v)
-            elif m == 2 or m == 8: v = cls.mut_s(v)
-            elif m == 3: v = cls.mut_g(v)
-            elif m == 4: v = cls.mut_y(v)
-            elif m == 5: v = cls.mut_m(v)
-            elif m == 6: v = cls.mut_dollar(v)
-            elif m == 7: v = cls.mut_k(v)
-            elif m == 9: v = cls.mut_b(v)
-            out.append(v & 0xff)
-        return out
-
-    @classmethod
-    def round4(cls, data: bytes, keys: List[bytes]) -> bytearray:
-        enc = cls.rc4(keys[9], data)
-        mut_key = keys[10]
-        pref_key = keys[11]
-        out = bytearray()
-
-        for i in range(len(enc)):
-            if i < 8 and i < len(pref_key):
-                out.append(pref_key[i])
-            v = enc[i] ^ cls.get_mut_key(mut_key, i)
-            
-            m = i % 10
-            if m == 0: v = cls.mut_b(v)
-            elif m == 1 or m == 9: v = cls.mut_m(v)
-            elif m == 2 or m == 7: v = cls.mut_l(v)
-            elif m == 3 or m == 5: v = cls.mut_s(v)
-            elif m == 4 or m == 6: v = cls.mut_underscore(v)
-            elif m == 8: v = cls.mut_y(v)
-            out.append(v & 0xff)
+    def mutate(cls, data, mut_key, pref_key, pref_key_limit, round_num):
+        out = []
+        for o in range(len(data)):
+            if o < pref_key_limit and o < len(pref_key):
+                out.append(pref_key[o])
+            n = data[o] ^ cls.get_mut_key(mut_key, o)
+            if round_num == 1:
+                if o % 10 == 0:
+                    n = cls.op_shift_right7_left1(n)
+                elif o % 10 == 1:
+                    n ^= 37
+                elif o % 10 == 2:
+                    n ^= 81
+                elif o % 10 == 3:
+                    n ^= 147
+                elif o % 10 == 4:
+                    n = cls.op_shift_right2_left6(n)
+                elif o % 10 in (5, 8):
+                    n = cls.op_shift_right4_left4(n)
+                elif o % 10 == 6:
+                    n ^= 218
+                elif o % 10 == 7:
+                    n = (n + 159) & 255
+                elif o % 10 == 9:
+                    n ^= 180
+            elif round_num == 2:
+                if o % 10 in (0, 9):
+                    n ^= 180
+                elif o % 10 == 1:
+                    n = cls.op_shift_left1_right7(n)
+                elif o % 10 == 2:
+                    n ^= 147
+                elif o % 10 == 3:
+                    n = cls.op_shift_right7_left1(n)
+                elif o % 10 == 4:
+                    n = cls.op_shift_right2_left6(n)
+                elif o % 10 == 5:
+                    n = cls.op_shift_right4_left4(n)
+                elif o % 10 in (6, 8):
+                    n = (n + 159) & 255
+                elif o % 10 == 7:
+                    n = (n + 34) & 255
+            elif round_num == 3:
+                if o % 10 == 0:
+                    n ^= 81
+                elif o % 10 == 1:
+                    n = cls.op_shift_right4_left4(n)
+                elif o % 10 in (2, 9):
+                    n = cls.op_shift_left4_right4(n)
+                elif o % 10 == 3:
+                    n ^= 37
+                elif o % 10 == 4:
+                    n = (n + 159) & 255
+                elif o % 10 == 5:
+                    n = cls.op_shift_left1_right7(n)
+                elif o % 10 == 6:
+                    n ^= 180
+                elif o % 10 == 7:
+                    n = (n + 34) & 255
+                elif o % 10 == 8:
+                    n = cls.op_shift_right2_left6(n)
+            elif round_num == 4:
+                if o % 10 in (0, 7):
+                    n ^= 218
+                elif o % 10 in (1, 4):
+                    n = cls.op_shift_left1_right7(n)
+                elif o % 10 == 2:
+                    n = cls.op_shift_right7_left1(n)
+                elif o % 10 == 3:
+                    n = (n + 159) & 255
+                elif o % 10 in (5, 8):
+                    n ^= 180
+                elif o % 10 == 6:
+                    n ^= 147
+                elif o % 10 == 9:
+                    n ^= 37
+            elif round_num == 5:
+                if o % 10 == 0:
+                    n = cls.op_shift_left4_right4(n)
+                elif o % 10 in (1, 3):
+                    n ^= 147
+                elif o % 10 == 2:
+                    n = (n + 34) & 255
+                elif o % 10 in (4, 9):
+                    n ^= 218
+                elif o % 10 in (5, 7):
+                    n = cls.op_shift_left1_right7(n)
+                elif o % 10 == 6:
+                    n ^= 180
+                elif o % 10 == 8:
+                    n = cls.op_shift_right2_left6(n)
+            out.append(n & 255)
         return out
 
     @classmethod
-    def round5(cls, data: bytes, keys: List[bytes]) -> bytearray:
-        enc = cls.rc4(keys[12], data)
-        mut_key = keys[13]
-        pref_key = keys[14]
-        out = bytearray()
-
-        for i in range(len(enc)):
-            if i < 6 and i < len(pref_key):
-                out.append(pref_key[i])
-            v = enc[i] ^ cls.get_mut_key(mut_key, i)
-            
-            m = i % 10
-            if m == 0: v = cls.mut_underscore(v)
-            elif m == 1 or m == 7: v = cls.mut_s(v)
-            elif m == 2: v = cls.mut_c(v)
-            elif m == 3 or m == 5: v = cls.mut_m(v)
-            elif m == 4: v = cls.mut_b(v)
-            elif m == 6: v = cls.mut_f(v)
-            elif m == 8: v = cls.mut_dollar(v)
-            elif m == 9: v = cls.mut_g(v)
-            out.append(v & 0xff)
-        return out
+    def round1(cls, data):
+        mut = cls.mutate(data, cls.get_key_bytes(1), cls.get_key_bytes(2), 7, 1)
+        return cls.rc4(cls.get_key_bytes(0), mut)
 
     @classmethod
-    def generate_hash(cls, path: str) -> str:
-        # JS encodeURIComponent equivalent in Python
-        encoded = urllib.parse.quote(path, safe="-_.!~*'()")
-        initial_bytes = encoded.encode('utf-8')
-        
-        keys = cls.encoded_keys()
-        
-        res1 = cls.round1(initial_bytes, keys)
-        res2 = cls.round2(res1, keys)
-        res3 = cls.round3(res2, keys)
-        res4 = cls.round4(res3, keys)
-        res5 = cls.round5(res4, keys)
+    def round2(cls, data):
+        mut = cls.mutate(data, cls.get_key_bytes(4), cls.get_key_bytes(5), 8, 2)
+        return cls.rc4(cls.get_key_bytes(3), mut)
+
+    @classmethod
+    def round3(cls, data):
+        mut = cls.mutate(data, cls.get_key_bytes(7), cls.get_key_bytes(8), 5, 3)
+        return cls.rc4(cls.get_key_bytes(6), mut)
+
+    @classmethod
+    def round4(cls, data):
+        mut = cls.mutate(data, cls.get_key_bytes(10), cls.get_key_bytes(11), 8, 4)
+        return cls.rc4(cls.get_key_bytes(9), mut)
+
+    @classmethod
+    def round5(cls, data):
+        mut = cls.mutate(data, cls.get_key_bytes(13), cls.get_key_bytes(14), 5, 5)
+        return cls.rc4(cls.get_key_bytes(12), mut)
+
+    @classmethod
+    def generate_hash(cls, path):
+        encoded = urllib.parse.quote(path, safe='') \
+            .replace("+", "%20") \
+            .replace("*", "%2A") \
+            .replace("%7E", "~")
+
+        initial_bytes = [b & 0xFF for b in encoded.encode('ascii')]
+        r1 = cls.round1(initial_bytes)
+        r2 = cls.round2(r1)
+        r3 = cls.round3(r2)
+        r4 = cls.round4(r3)
+        r5 = cls.round5(r4)
         
         # JS GetURLBase64FromBytes equivalent
-        return base64.urlsafe_b64encode(res5).decode('ascii').rstrip('=')
-
+        return base64.urlsafe_b64encode(bytes(r5)).decode('ascii').rstrip('=')
 
 def generate_comix_hash(path: str) -> str:
-    """Convenience function to generate the Comix hash."""
+    """Convenience function to generate the Comix Hash."""
     return ComixHash.generate_hash(path)
