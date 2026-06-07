@@ -8,6 +8,10 @@ import threading
 from typing import Optional, Callable
 from rich.progress import Progress, TaskID, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
 
+from io import BytesIO
+from PIL import Image
+import requests
+
 from .models import MangaInfo, Chapter, DownloadConfig, OutputFormat
 from ..api.comix import ComixAPI
 from ..formats.images import save_images, cleanup_images
@@ -31,6 +35,57 @@ def is_cancelled():
     """Check if cancellation has been signaled."""
     return _cancel_event.is_set()
 
+def get_scramble_order(seed: int, n: int = 25) -> list[int]:
+    arr = list(range(n))
+    state = seed & 0xFFFFFFFF
+    for i in range(n - 1, 0, -1):
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        j = state % (i + 1)
+        arr[i], arr[j] = arr[j], arr[i]
+    return arr
+
+def descramble_image(image_data: bytes, seed: int) -> bytes:
+    try:
+        img = Image.open(BytesIO(image_data))
+    except Exception as e:
+        logger.error(f"Failed to open image for descrambling: {e}")
+        return image_data
+        
+    width, height = img.size
+    tile_w = width // 5
+    tile_h = height // 5
+    
+    perm = get_scramble_order(seed)
+    
+    out_img = Image.new(img.mode, (width, height))
+    if img.mode == 'P':
+        out_img = Image.new('RGBA', (width, height))
+        img = img.convert('RGBA')
+        
+    out_img.paste(img, (0, 0)) # copy original as base
+    
+    for src_idx in range(25):
+        dst_idx = perm[src_idx]
+        src_c = src_idx % 5
+        src_r = src_idx // 5
+        dst_c = dst_idx % 5
+        dst_r = dst_idx // 5
+        
+        src_box = (src_c * tile_w, src_r * tile_h, (src_c + 1) * tile_w, (src_r + 1) * tile_h)
+        dst_box = (dst_c * tile_w, dst_r * tile_h)
+        
+        tile = img.crop(src_box)
+        out_img.paste(tile, dst_box)
+        
+    out_io = BytesIO()
+    fmt = img.format or "PNG"
+    if fmt == "WEBP":
+        out_img.save(out_io, format="WEBP", quality=95)
+    else:
+        if out_img.mode == 'RGBA':
+            out_img = out_img.convert('RGB')
+        out_img.save(out_io, format="JPEG", quality=90)
+    return out_io.getvalue()
 
 class ImageDownloader:
     """Downloads images with threading and retry logic."""
@@ -53,17 +108,46 @@ class ImageDownloader:
             if is_cancelled():
                 raise InterruptedError("Download cancelled")
                 
-            logger.debug(f"Starting download of image {index}: {url}")
-            response = get_session().get(url, timeout=30, stream=True)
+            is_scrambled = url.endswith("#scrambled")
+            clean_url = url.split("#")[0]
+            if not clean_url.startswith("http"):
+                clean_url = "https://comix.to" + clean_url
+
+            logger.debug(f"Starting download of image {index}: {clean_url}")
+            
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://comix.to/",
+                "Sec-Ch-Ua": '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "image",
+                "Sec-Fetch-Mode": "no-cors",
+                "Sec-Fetch-Site": "cross-site",
+            }
+            if is_scrambled:
+                headers["Origin"] = "https://comix.to"
+                headers["Sec-Fetch-Mode"] = "cors"
+
+            response = requests.get(clean_url, headers=headers, timeout=30, stream=True)
             response.raise_for_status()
             
-            # Use chunks like test.py for better speed and lower memory usage
+            seed_str = response.headers.get("x-scramble-seed")
+            seed = int(seed_str) if seed_str and seed_str.isdigit() else 0
+            
             content = bytearray()
             for chunk in response.iter_content(chunk_size=8192):
                 if is_cancelled():
                     raise InterruptedError("Download cancelled")
                 if chunk:
                     content.extend(chunk)
+                    
+            if is_scrambled and seed != 0:
+                logger.debug(f"Descrambling image {index} with seed {seed}")
+                content = descramble_image(bytes(content), seed)
+                
             return bytes(content)
         
         success, data, error = self.retrier.download_with_retry(

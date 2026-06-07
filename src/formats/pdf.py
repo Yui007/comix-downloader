@@ -6,6 +6,10 @@ from pathlib import Path
 from io import BytesIO
 from typing import Optional
 from PIL import Image
+try:
+    import pillow_avif
+except ImportError:
+    pass
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader

@@ -2,6 +2,7 @@ typer[all]
 rich
 requests
 Pillow
+pillow-avif-plugin
 reportlab
 pyqt6
 playwright

@@ -227,7 +227,7 @@ class ComixAPI:
                 JSON.parse = (t, r) => {
                     const parsed = origParse(t, r);
                     if (parsed && parsed.result && parsed.result.pages && parsed.result.pages.items) {
-                        window.interceptedImages = parsed.result.pages.items.map(item => item.url);
+                        window.interceptedImages = parsed.result.pages.items;
                     }
                     return parsed;
                 };
@@ -243,8 +243,18 @@ class ComixAPI:
                         break
                     time.sleep(0.5)
                     
-                images = page.evaluate("window.interceptedImages") or []
-                logger.debug(f"Found {len(images)} images")
+                images_data = page.evaluate("window.interceptedImages") or []
+                logger.debug(f"Found {len(images_data)} image items. Sample: {images_data[:2]}")
+                images = []
+                for item in images_data:
+                    if isinstance(item, dict):
+                        url = item.get("url")
+                        if item.get("s") == 1:
+                            url += "#scrambled"
+                        images.append(url)
+                    elif isinstance(item, str):
+                        images.append(item)
+                logger.debug(f"Found {len(images)} image URLs")
                 return images
             except Exception as e:
                 logger.error(f"Failed to fetch chapter images: {e}")

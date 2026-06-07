@@ -56,6 +56,8 @@ def _get_image_extension(data: bytes) -> str:
         return ".gif"
     elif data[:4] == b'RIFF' and data[8:12] == b'WEBP':
         return ".webp"
+    elif data[4:8] == b'ftyp' and b'avif' in data[8:16]:
+        return ".avif"
     else:
         return ".jpg"  # Default to jpg
 

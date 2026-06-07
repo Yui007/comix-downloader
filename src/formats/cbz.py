@@ -196,5 +196,7 @@ def _get_extension_from_bytes(data: bytes) -> str:
         return ".gif"
     elif data[:4] == b'RIFF' and data[8:12] == b'WEBP':
         return ".webp"
+    elif data[4:8] == b'ftyp' and b'avif' in data[8:16]:
+        return ".avif"
     else:
         return ".jpg"
