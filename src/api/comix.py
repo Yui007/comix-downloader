@@ -1,21 +1,22 @@
 """
-Comix.to API wrapper for manga information and chapter data.
+Comix.to API wrapper for manga information and chapter data using Playwright.
 """
 
+import json
+import time
 from typing import Optional
+from playwright.sync_api import sync_playwright
+
 from ..core.models import MangaInfo, Chapter
 from ..utils.retry import retry_with_backoff
 from ..utils.logger import get_logger
-from ..utils.session import get_session
-from ..utils.hash import generate_comix_hash
 
 logger = get_logger(__name__)
 
-
 class ComixAPI:
-    """API wrapper for comix.to"""
+    """API wrapper for comix.to using Playwright to intercept decrypted JSON"""
     
-    BASE_URL = "https://comix.to/api/v2"
+    BASE_URL = "https://comix.to"
     
     @staticmethod
     def extract_manga_code(url: str) -> str:
@@ -28,170 +29,225 @@ class ComixAPI:
         code = last.split("-")[0]
         logger.debug(f"Extracted manga code: {code} from URL: {url}")
         return code
-    
+
     @classmethod
     @retry_with_backoff()
     def get_manga_info(cls, manga_code: str) -> Optional[MangaInfo]:
-        """Fetch manga information from API."""
-        url = f"{cls.BASE_URL}/manga/{manga_code}/"
+        """Fetch manga information from #initial-data on the page."""
+        url = f"{cls.BASE_URL}/title/{manga_code}"
         logger.debug(f"Fetching manga info from: {url}")
         
-        response = get_session().get(url, timeout=30)
-        response.raise_for_status()
-        
-        json_data = response.json()
-        data = json_data.get("result")
-        
-        if not data:
-            logger.error(f"API returned no result for manga code: {manga_code}. Response: {json_data}")
-            return None
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
             
-        return MangaInfo(
-            manga_id=data.get("manga_id"),
-            hash_id=data.get("hash_id"),
-            title=data.get("title", "Unknown"),
-            alt_titles=data.get("alt_titles", []),
-            slug=data.get("slug"),
-            rank=data.get("rank"),
-            manga_type=data.get("type"),
-            poster_url=data.get("poster", {}).get("large") or data.get("poster", {}).get("medium"),
-            original_language=data.get("original_language"),
-            status=data.get("status"),
-            final_chapter=data.get("final_chapter"),
-            latest_chapter=data.get("latest_chapter"),
-            start_date=data.get("start_date"),
-            end_date=data.get("end_date"),
-            rated_avg=data.get("rated_avg"),
-            rated_count=data.get("rated_count"),
-            follows_total=data.get("follows_total"),
-            is_nsfw=data.get("is_nsfw", False),
-            year=data.get("year"),
-            genres=data.get("term_ids", []),
-            description=data.get("synopsis", "")
-        )
-    
-    @classmethod
-    def _fetch_chapter_page(cls, manga_code: str, page: int, force_flare: bool = False) -> tuple[int, list[dict]]:
-        """Fetch a single page of chapters. Returns (page_number, items)."""
-        base_path = f"/manga/{manga_code}/chapters"
-        time_val = 1
-        
-        try:
-            # Generate the required Comix hash for the request
-            request_hash = generate_comix_hash(base_path, time=time_val)
-            
-            # API uses limit, page, order, time, and _ (hash)
-            url = f"{cls.BASE_URL}{base_path}?limit=100&page={page}&order[number]=desc&time={time_val}&_={request_hash}"
-            
-            # If it's the first page and we aren't sure about the session, we can force flare
-            response = get_session().get(url, timeout=30, force_flare=force_flare)
-            response.raise_for_status()
-            
-            json_data = response.json()
-            data = json_data.get("result")
-            
-            if data is None:
-                # If result is null but status is 200, it might be a soft block or actual end
-                # If it's page 1, it's very likely a block if no chapters are found
-                if page == 1 and not force_flare:
-                    logger.warning(f"Page 1 returned null result (even with hash). Retrying with forced FlareSolverr...")
-                    return cls._fetch_chapter_page(manga_code, page, force_flare=True)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                
+                # Extract initial data
+                initial_data_str = page.evaluate('document.getElementById("initial-data")?.textContent')
+                if not initial_data_str:
+                    logger.error("Could not find initial-data in the page.")
+                    return None
                     
-                logger.debug(f"API returned null result for page {page} - possibly end of list.")
-                return page, []
+                json_data = json.loads(initial_data_str)
+                queries = json_data.get("queries", {})
                 
-            return page, data.get("items", [])
-        except Exception as e:
-            # If we hit an error on page 1, try one last time with force_flare
-            if page == 1 and not force_flare:
-                logger.warning(f"Error fetching page 1: {e}. Retrying with forced FlareSolverr...")
-                return cls._fetch_chapter_page(manga_code, page, force_flare=True)
+                manga_data = None
+                for k, v in queries.items():
+                    if "manga" in k and "detail" in k and manga_code in k:
+                        manga_data = v
+                        break
+                        
+                if not manga_data:
+                    logger.error("Could not find manga details in queries.")
+                    return None
+                    
+                url_path = manga_data.get("url", "")
+                slug = manga_data.get("slug") or url_path.split("/")[-1] if "/" in url_path else None
                 
-            logger.warning(f"Failed to fetch page {page}: {str(e)}")
-            return page, []
-    
+                return MangaInfo(
+                    manga_id=manga_data.get("id"),
+                    hash_id=manga_data.get("hid"),
+                    title=manga_data.get("title", ""),
+                    alt_titles=manga_data.get("altTitles", []),
+                    description=manga_data.get("synopsis", ""),
+                    slug=slug,
+                    manga_type=manga_data.get("type"),
+                    poster_url=manga_data.get("poster"),
+                    original_language=manga_data.get("originalLanguage"),
+                    status=manga_data.get("status"),
+                    final_chapter=manga_data.get("finalChapter"),
+                    latest_chapter=manga_data.get("latestChapter"),
+                    start_date=manga_data.get("startDate"),
+                    end_date=manga_data.get("endDate"),
+                    rated_avg=manga_data.get("ratedAvg"),
+                    rated_count=manga_data.get("ratedCount"),
+                    follows_total=manga_data.get("followsTotal"),
+                    is_nsfw=manga_data.get("contentRating") == "pornographic",
+                    year=manga_data.get("year"),
+                    genres=[g.get("name") for g in manga_data.get("genres", [])] if manga_data.get("genres") else [],
+                    rank=manga_data.get("rank")
+                )
+            except Exception as e:
+                logger.error(f"Failed to fetch manga info: {e}")
+                return None
+            finally:
+                browser.close()
+
     @classmethod
     def get_all_chapters(cls, manga_code: str) -> list[Chapter]:
-        """Fetch all chapters for a manga using parallel requests."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        """Fetch all chapters using Playwright JSON.parse interception on the reader page."""
+        url = f"{cls.BASE_URL}/title/{manga_code}"
+        logger.debug(f"Fetching chapters for: {manga_code}")
         
-        all_items = {}  # page -> items mapping
-        page_batch_size = 10  # Fetch 10 pages concurrently
-        current_batch_start = 1
-        found_empty = False
-        
-        logger.debug(f"Starting parallel chapter fetch for {manga_code}")
-        
-        while not found_empty:
-            # Fetch a batch of pages in parallel
-            pages_to_fetch = range(current_batch_start, current_batch_start + page_batch_size)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
             
-            with ThreadPoolExecutor(max_workers=page_batch_size) as executor:
-                futures = {
-                    executor.submit(cls._fetch_chapter_page, manga_code, page): page 
-                    for page in pages_to_fetch
-                }
+            page.add_init_script("""
+                window.interceptedChapters = [];
+                const origParse = JSON.parse;
+                JSON.parse = (t, r) => {
+                    const parsed = origParse(t, r);
+                    if (parsed && parsed.result && parsed.result.items && parsed.result.items.length > 0) {
+                        if (parsed.result.items[0].number !== undefined) {
+                            window.interceptedChapters = window.interceptedChapters.concat(parsed.result.items);
+                        }
+                    }
+                    return parsed;
+                };
+            """)
+            
+            try:
+                # 1. Go to manga page to get at least one chapter ID
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 
-                for future in as_completed(futures):
-                    page_num, items = future.result()
-                    if items:
-                        all_items[page_num] = items
-                    else:
-                        found_empty = True
-            
-            current_batch_start += page_batch_size
-        
-        # Build chapters list in correct order
-        chapters = []
-        for page_num in sorted(all_items.keys()):
-            for chap in all_items[page_num]:
-                if not chap:
-                    continue
+                chapters_data = None
+                chapter_url = None
+                for _ in range(40):
+                    chapters_data = page.evaluate("window.interceptedChapters")
+                    if chapters_data:
+                        # Extract firstChapterUrl from initial-data
+                        initial_data_str = page.evaluate('document.getElementById("initial-data")?.textContent')
+                        if initial_data_str:
+                            import json
+                            try:
+                                json_data = json.loads(initial_data_str)
+                                queries = json_data.get("queries", {})
+                                for k, v in queries.items():
+                                    if "manga" in k and "detail" in k and manga_code in k:
+                                        first_chapter_url = v.get("firstChapterUrl")
+                                        if first_chapter_url:
+                                            chapter_url = f"{cls.BASE_URL}{first_chapter_url}"
+                                        break
+                            except:
+                                pass
+                        break
+                    time.sleep(0.5)
+                
+                if not chapters_data:
+                    logger.error("Could not fetch initial chapter list.")
+                    return []
+                
+                # Fallback to constructing URL if firstChapterUrl is not found
+                if not chapter_url:
+                    first_chap = chapters_data[-1] if chapters_data else {}
+                    chap_id = first_chap.get("id", 0)
+                    chap_num = first_chap.get("number", 1)
+                    num_str = str(int(chap_num)) if chap_num == int(chap_num) else str(chap_num)
+                    chapter_url = f"{cls.BASE_URL}/title/{manga_code}/{chap_id}-chapter-{num_str}"
+                
+                logger.debug(f"Navigating to chapter page to fetch full list: {chapter_url}")
+                
+                # 3. Navigate to chapter reader page to trigger full list fetch
+                page.goto(chapter_url, wait_until="domcontentloaded", timeout=30000)
+                
+                full_chapters_data = None
+                for _ in range(40):
+                    full_chapters_data = page.evaluate("window.interceptedChapters")
+                    if full_chapters_data and len(full_chapters_data) > len(chapters_data):
+                        break
+                    time.sleep(0.5)
                     
-                group = chap.get("scanlation_group")
-                is_official = chap.get("is_official", 0)
-                
-                # Determine group name: prefer scanlation_group, then check is_official
-                if group:
-                    group_name = group.get("name")
-                elif is_official:
-                    group_name = "Official"
-                else:
-                    group_name = None
-                
-                chapters.append(Chapter(
-                    chapter_id=chap["chapter_id"],
-                    number=chap["number"],
-                    title=chap.get("name") or chap.get("title"),  # API uses 'name' field
-                    volume=chap.get("volume"),
-                    votes=chap.get("votes"),
-                    group_name=group_name,
-                    pages_count=chap.get("pages_count", 0)
-                ))
-        # Reverse the list so old chapters (low numbers) are at the beginning
-        chapters.reverse()
-        
-        logger.info(f"Found {len(chapters)} chapters (fetched {len(all_items)} pages in parallel)")
-        return chapters
-    
+                if not full_chapters_data:
+                    full_chapters_data = page.evaluate("window.interceptedChapters")
+                    
+                if not full_chapters_data:
+                    full_chapters_data = chapters_data
+                    
+                # Deduplicate chapters
+                seen_numbers = set()
+                chapters = []
+                for chap in full_chapters_data:
+                    chap_num_val = chap.get("number")
+                    if chap_num_val in seen_numbers:
+                        continue
+                    seen_numbers.add(chap_num_val)
+                    
+                    groups = chap.get("groups", [])
+                    group_name = groups[0].get("name") if groups else None
+                    
+                    chapters.append(Chapter(
+                        chapter_id=chap.get("id", 0),
+                        number=chap.get("number"),
+                        title=chap.get("name") or chap.get("title"),
+                        volume=chap.get("volume"),
+                        votes=chap.get("votes"),
+                        group_name=group_name,
+                        pages_count=chap.get("pages_count", 0)
+                    ))
+                    
+                # Reverse to sort by oldest first
+                chapters.reverse()
+                logger.info(f"Found {len(chapters)} chapters")
+                return chapters
+            except Exception as e:
+                logger.error(f"Failed to fetch chapters: {e}")
+                return []
+            finally:
+                browser.close()
+
     @classmethod
     @retry_with_backoff()
-    def get_chapter_images(cls, chapter_id: int) -> list[str]:
-        """Fetch all image URLs for a chapter."""
-        base_path = f"/chapters/{chapter_id}/"
-        time_val = 1
+    def get_chapter_images(cls, manga_hid: str, chapter_id: int, chapter_number: float) -> list[str]:
+        """Fetch all image URLs for a chapter using Playwright JSON.parse interception."""
+        # Ensure chapter number is formatted correctly (e.g., "0" or "73" or "72.5")
+        num_str = str(int(chapter_number)) if chapter_number == int(chapter_number) else str(chapter_number)
+        url = f"{cls.BASE_URL}/title/{manga_hid}/{chapter_id}-chapter-{num_str}"
+        logger.debug(f"Fetching images from chapter URL: {url}")
         
-        request_hash = generate_comix_hash(base_path, time=time_val)
-        url = f"{cls.BASE_URL}{base_path}?time={time_val}&_={request_hash}"
-        
-        logger.debug(f"Fetching images for chapter {chapter_id} (hash used)")
-        
-        response = get_session().get(url, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        images = (data.get("result") or {}).get("images", [])
-        image_urls = [img["url"] for img in images if "url" in img]
-        
-        logger.debug(f"Found {len(image_urls)} images")
-        return image_urls
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
+            
+            page.add_init_script("""
+                window.interceptedImages = null;
+                const origParse = JSON.parse;
+                JSON.parse = (t, r) => {
+                    const parsed = origParse(t, r);
+                    if (parsed && parsed.result && parsed.result.pages && parsed.result.pages.items) {
+                        window.interceptedImages = parsed.result.pages.items.map(item => item.url);
+                    }
+                    return parsed;
+                };
+            """)
+            
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                
+                # Wait for images to be intercepted
+                for _ in range(40): # wait up to 20 seconds
+                    images = page.evaluate("window.interceptedImages")
+                    if images:
+                        break
+                    time.sleep(0.5)
+                    
+                images = page.evaluate("window.interceptedImages") or []
+                logger.debug(f"Found {len(images)} images")
+                return images
+            except Exception as e:
+                logger.error(f"Failed to fetch chapter images: {e}")
+                return []
+            finally:
+                browser.close()

@@ -151,7 +151,8 @@ class ChapterDownloader:
         
         try:
             # Fetch image URLs
-            image_urls = ComixAPI.get_chapter_images(chapter.chapter_id)
+            slug_or_id = self.manga.slug if self.manga.slug else self.manga.hash_id
+            image_urls = ComixAPI.get_chapter_images(slug_or_id, chapter.chapter_id, chapter.number)
             
             if not image_urls:
                 return False, f"No images found for {chapter.get_display_name()}"
