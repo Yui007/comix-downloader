@@ -242,6 +242,7 @@ class ComixAPI:
         logger.info(f"Fetching chapter images via Playwright DOM for {chapter_url}...")
         
         image_urls = []
+        page_count = 0
         
         try:
             with sync_playwright() as p:

@@ -45,14 +45,10 @@ cd comix-downloader
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Install Playwright browser dependencies
+playwright install chromium
 ```
-
-### Cloudflare Bypass (FlareSolverr)
-Since comix.to employs Cloudflare protection, it is highly recommended to run **FlareSolverr** alongside this downloader to avoid 403 Forbidden errors.
-
-1. Download the latest version of FlareSolverr from: [FlareSolverr Releases](https://github.com/FlareSolverr/FlareSolverr/releases)
-2. Extract the archive and run the executable (`flaresolverr.exe` on Windows).
-3. Keep it running in the background. The downloader automatically detects it at `http://localhost:8191/v1` and will bypass Cloudflare challenges seamlessly.
 
 ---
 
@@ -128,6 +124,7 @@ comix-downloader/
 - **[Rich](https://rich.readthedocs.io/)** - Beautiful terminal output
 
 **Shared:**
+- **[Playwright](https://playwright.dev/python/)** - Browser automation and canvas image extraction
 - **[Requests](https://requests.readthedocs.io/)** - HTTP library
 - **[Pillow](https://pillow.readthedocs.io/)** - Image processing
 - **[ReportLab](https://www.reportlab.com/)** - PDF generation

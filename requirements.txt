@@ -4,3 +4,4 @@ requests
 Pillow
 reportlab
 pyqt6
+playwright
