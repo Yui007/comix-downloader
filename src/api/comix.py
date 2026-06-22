@@ -48,24 +48,28 @@ class ComixAPI:
         url = f"https://comix.to/title/{manga_code}"
         cookie_file = Path("cf_cookies.dat")
         
-        browser = await uc.start(
-            headless=headless,
-            browser_args=[
-                "--start-maximized",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-ipc-flooding-protection",
-            ]
-        )
-        
-        if cookie_file.exists():
-            try:
-                await browser.cookies.load(str(cookie_file))
-                logger.info(f"Loaded cookies from {cookie_file}")
-            except Exception as e:
-                logger.warning(f"Failed loading cookies: {e}")
+        _browser_lock.acquire()
+        try:
+            browser = await uc.start(
+                headless=headless,
+                browser_args=[
+                    "--start-maximized",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-ipc-flooding-protection",
+                ]
+            )
+            
+            if cookie_file.exists():
+                try:
+                    await browser.cookies.load(str(cookie_file))
+                    logger.info(f"Loaded cookies from {cookie_file}")
+                except Exception as e:
+                    logger.warning(f"Failed loading cookies: {e}")
+        finally:
+            _browser_lock.release()
         
         try:
             page = await browser.get(url)
@@ -93,11 +97,14 @@ class ComixAPI:
                 await page.sleep(0.5)
                 
             if "moment" not in title.lower():
+                _browser_lock.acquire()
                 try:
                     await browser.cookies.save(str(cookie_file), pattern=".*")
                     logger.info(f"Saved cookies to {cookie_file}")
                 except Exception as e:
                     logger.warning(f"Failed saving cookies: {e}")
+                finally:
+                    _browser_lock.release()
                 
             return script_content
             
@@ -115,8 +122,7 @@ class ComixAPI:
         logger.info(f"Fetching manga info using nodriver (headless={headless}) for {manga_code}...")
         
         try:
-            with _browser_lock:
-                initial_data_str = run_async(cls._get_manga_info_async(manga_code, headless))
+            initial_data_str = run_async(cls._get_manga_info_async(manga_code, headless))
             if not initial_data_str:
                 return None
             json_data = json.loads(initial_data_str)
@@ -186,24 +192,28 @@ class ComixAPI:
         url = f"https://comix.to/title/{manga_code}"
         cookie_file = Path("cf_cookies.dat")
         
-        browser = await uc.start(
-            headless=headless,
-            browser_args=[
-                "--start-maximized",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-ipc-flooding-protection",
-            ]
-        )
-        
-        if cookie_file.exists():
-            try:
-                await browser.cookies.load(str(cookie_file))
-                logger.info(f"Loaded cookies from {cookie_file}")
-            except Exception as e:
-                logger.warning(f"Failed loading cookies: {e}")
+        _browser_lock.acquire()
+        try:
+            browser = await uc.start(
+                headless=headless,
+                browser_args=[
+                    "--start-maximized",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-ipc-flooding-protection",
+                ]
+            )
+            
+            if cookie_file.exists():
+                try:
+                    await browser.cookies.load(str(cookie_file))
+                    logger.info(f"Loaded cookies from {cookie_file}")
+                except Exception as e:
+                    logger.warning(f"Failed loading cookies: {e}")
+        finally:
+            _browser_lock.release()
                 
         scrape_js = """(() => {
             const rows = Array.from(document.querySelectorAll('.mchap-item')).map(li => {
@@ -301,11 +311,14 @@ class ComixAPI:
                     consecutive_dup_pages = 0
             
             if "moment" not in title.lower():
+                _browser_lock.acquire()
                 try:
                     await browser.cookies.save(str(cookie_file), pattern=".*")
                     logger.info(f"Saved cookies to {cookie_file}")
                 except Exception as e:
                     logger.warning(f"Failed saving cookies: {e}")
+                finally:
+                    _browser_lock.release()
                 
             return all_rows
         finally:
@@ -323,8 +336,7 @@ class ComixAPI:
         
         chapters: list[Chapter] = []
         try:
-            with _browser_lock:
-                rows = run_async(cls._get_all_chapters_async(manga_code, headless))
+            rows = run_async(cls._get_all_chapters_async(manga_code, headless))
             for row in rows:
                 chapters.append(Chapter(
                     chapter_id=row["chapter_id"],
@@ -353,24 +365,28 @@ class ComixAPI:
         chapter_url = f"https://comix.to/title/{manga_slug}/{chapter_id}-chapter-{chapter_number}"
         cookie_file = Path("cf_cookies.dat")
         
-        browser = await uc.start(
-            headless=headless,
-            browser_args=[
-                "--start-maximized",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-ipc-flooding-protection",
-            ]
-        )
-        
-        if cookie_file.exists():
-            try:
-                await browser.cookies.load(str(cookie_file))
-                logger.info(f"Loaded cookies from {cookie_file}")
-            except Exception as e:
-                logger.warning(f"Failed loading cookies: {e}")
+        _browser_lock.acquire()
+        try:
+            browser = await uc.start(
+                headless=headless,
+                browser_args=[
+                    "--start-maximized",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-ipc-flooding-protection",
+                ]
+            )
+            
+            if cookie_file.exists():
+                try:
+                    await browser.cookies.load(str(cookie_file))
+                    logger.info(f"Loaded cookies from {cookie_file}")
+                except Exception as e:
+                    logger.warning(f"Failed loading cookies: {e}")
+        finally:
+            _browser_lock.release()
                 
         image_urls = []
         page_count = 0
@@ -562,11 +578,14 @@ class ComixAPI:
                     logger.error(f"Page {page_num} failed to extract valid URL or data.")
             
             if "moment" not in title.lower():
+                _browser_lock.acquire()
                 try:
                     await browser.cookies.save(str(cookie_file), pattern=".*")
                     logger.info(f"Saved cookies to {cookie_file}")
                 except Exception as e:
                     logger.warning(f"Failed saving cookies: {e}")
+                finally:
+                    _browser_lock.release()
                 
             return image_urls, page_count
         finally:
@@ -589,8 +608,7 @@ class ComixAPI:
         image_urls = []
         page_count = 0
         try:
-            with _browser_lock:
-                image_urls, page_count = run_async(cls._get_chapter_images_async(chapter_id, manga_slug, chapter_number, headless))
+            image_urls, page_count = run_async(cls._get_chapter_images_async(chapter_id, manga_slug, chapter_number, headless))
         except Exception as e:
             logger.error(f"nodriver failed to fetch images for chapter {chapter_id}: {e}")
             
