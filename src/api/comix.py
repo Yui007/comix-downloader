@@ -397,41 +397,56 @@ class ComixAPI:
             # Now navigate directly to chapter page
             page = await browser.get(chapter_url)
             
-            # Check for Cloudflare challenge
-            title = await page.evaluate("document.title")
-            if "moment" in title.lower():
+            # Wait for reader page elements to load OR Cloudflare challenge
+            cloudflare_detected = False
+            for _ in range(150):
+                try:
+                    title = await page.evaluate("document.title") or ""
+                    if "moment" in title.lower():
+                        cloudflare_detected = True
+                        break
+                    page_count = await page.evaluate("document.querySelectorAll('.rpage-page').length") or 0
+                    if page_count > 0:
+                        break
+                except Exception:
+                    pass
+                await page.sleep(0.2)
+            
+            if cloudflare_detected:
                 logger.warning("Cloudflare challenge detected.")
                 if headless:
                     logger.error("Cannot solve Cloudflare challenge in headless mode. Run with headless=False first.")
+                    return [], 0
                 else:
                     print("\n[!] Still on the Cloudflare challenge page.")
                     print("[!] Solve the checkbox manually in the browser window now.")
                     input("    Press ENTER *after* the page has fully loaded (title changes)...\n")
                     await page
-                    title = await page.evaluate("document.title")
-                
-            # Wait for reader page elements to load
-            for _ in range(60):
-                try:
-                    page_count = await page.evaluate("document.querySelectorAll('.rpage-page').length") or 0
-                except Exception:
-                    page_count = 0
-                if page_count > 0:
-                    break
-                await page.sleep(0.1)
+                    # Re-verify page count after manual solving
+                    for _ in range(150):
+                        try:
+                            page_count = await page.evaluate("document.querySelectorAll('.rpage-page').length") or 0
+                            if page_count > 0:
+                                break
+                        except Exception:
+                            pass
+                        await page.sleep(0.2)
                 
             if page_count == 0:
                 logger.error(f"Chapter page had no pages in DOM: {chapter_url}")
                 return [], 0
                 
             # Wait for first page to begin rendering
-            for _ in range(60):
-                first_ready = await page.evaluate(
-                    "document.querySelector('.rpage-page[data-page=\"1\"] canvas, .rpage-page[data-page=\"1\"] img') ? true : false"
-                )
-                if first_ready:
-                    break
-                await page.sleep(0.1)
+            for _ in range(150):
+                try:
+                    first_ready = await page.evaluate(
+                        "document.querySelector('.rpage-page[data-page=\"1\"] canvas, .rpage-page[data-page=\"1\"] img') ? true : false"
+                    )
+                    if first_ready:
+                        break
+                except Exception:
+                    pass
+                await page.sleep(0.2)
                 
             logger.info(f"Chapter has {page_count} pages. Extracting content...")
             
@@ -446,7 +461,7 @@ class ComixAPI:
                     
                 # Wait for image element or canvas element to be ready
                 ready = None
-                for _attempt in range(80):
+                for _attempt in range(150):
                     try:
                         ready_res = await page.evaluate(
                             f"""(() => {{
