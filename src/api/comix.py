@@ -11,6 +11,7 @@ from ..utils.retry import retry_with_backoff
 from ..utils.logger import get_logger
 from ..utils.session import get_session
 from ..utils.hash import generate_comix_hash
+from ..utils.nodriver_compat import load_cdp_page, load_nodriver
 
 logger = get_logger(__name__)
 
@@ -42,7 +43,7 @@ class ComixAPI:
     
     @classmethod
     async def _get_manga_info_async(cls, manga_code: str, headless: bool) -> Optional[str]:
-        import nodriver as uc
+        uc = load_nodriver()
         from pathlib import Path
         
         url = f"https://comix.to/title/{manga_code}"
@@ -186,7 +187,7 @@ class ComixAPI:
     
     @classmethod
     async def _get_all_chapters_async(cls, manga_code: str, headless: bool) -> list[dict]:
-        import nodriver as uc
+        uc = load_nodriver()
         from pathlib import Path
         
         url = f"https://comix.to/title/{manga_code}"
@@ -359,7 +360,7 @@ class ComixAPI:
     async def _get_chapter_images_async(
         cls, chapter_id: int, manga_slug: str, chapter_number: str, headless: bool
     ) -> tuple[list[str], int]:
-        import nodriver as uc
+        uc = load_nodriver()
         from pathlib import Path
         
         chapter_url = f"https://comix.to/title/{manga_slug}/{chapter_id}-chapter-{chapter_number}"
@@ -395,7 +396,7 @@ class ComixAPI:
             # Setup init script to backup original toDataURL and set localStorage reader.default preload config
             page = browser.main_tab
             try:
-                import nodriver.cdp.page as cdp_page
+                cdp_page = load_cdp_page()
                 await page.send(cdp_page.enable())
                 init_js = """
                 try {
