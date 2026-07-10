@@ -83,4 +83,3 @@ class DownloadConfig:
     download_path: str = "downloads"
     retry_count: int = 3
     retry_delay: float = 2.0
-    headless: bool = True

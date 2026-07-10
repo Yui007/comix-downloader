@@ -1,159 +1,99 @@
-<div align="center">
+# Comix Downloader — Browser Free
 
-# 🎨 Comix Downloader
+A PyQt6/QML and CLI Comix downloader that signs and decrypts the current API in
+pure Python. It uses curl_cffi for HTTP/TLS impersonation and does not launch a
+browser.
 
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue?style=for-the-badge)]()
+This project is a fork of Yui007/comix-downloader. The upstream GUI, CLI,
+exporters, and worker-pool experience are retained; see NOTICE.md and LICENSE
+for attribution and licensing.
 
-**A beautiful manga downloader for [comix.to](https://comix.to) with GUI & CLI**
+## What changed
 
-*Fast concurrent downloads • Multiple formats • Scanlator selection*
+- No nodriver, Chromium, page canvas extraction, cookie persistence, or manual
+  Cloudflare challenge flow.
+- The current public secure asset is fetched and statically parsed for every
+  manga session.
+- API requests receive the same signed query parameter as the site client.
+- Encrypted API responses are decrypted by three Python substitution passes.
+- Image and chapter downloads retain configurable bounded concurrency.
+- GUI, interactive CLI, direct CLI, CBZ, PDF, image output, scanlator choice,
+  range selection, and ComicInfo.xml remain available.
 
-🚀 **Looking for the browser extension? Check out the [Comix Browser Extension](https://github.com/Yui007/comix-extension)!**
+## Install
 
-![GUI Screenshot](GUI.PNG)
+Requires Python 3.10 or newer.
 
-</div>
-
----
-
-## ✨ Features
-
-| Feature | Description |
-|---------|-------------|
-| 🖥️ **Modern GUI** | Beautiful PyQt6/QML interface with dark theme |
-| 🎨 **Beautiful CLI** | Rich terminal interface with progress bars |
-| ⚡ **Concurrent Downloads** | Multi-threaded chapter and image downloads |
-| 📁 **Multiple Formats** | Export as **Images**, **PDF**, or **CBZ** |
-| 🎯 **Smart Selection** | Download single, range (`1-10`), or all chapters |
-| 🎨 **Scanlator Filter** | Filter and prefer specific scanlator groups |
-| ⚙️ **Persistent Settings** | All preferences saved to `config.json` |
-
----
-
-## 🚀 Installation
-
-### Prerequisites
-- Python 3.10 or higher
-- pip (Python package manager)
-
-### Quick Start
-
-```bash
-# Clone the repository
-git clone https://github.com/Yui007/comix-downloader.git
+~~~
+git clone https://github.com/zgredex/comix-downloader.git
 cd comix-downloader
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt
+~~~
 
-# Install dependencies
-pip install -r requirements.txt
+## Use
 
-# Install Chrome browser (nodriver handles driver download automatically)
-```
+GUI:
 
----
+~~~
+.venv/bin/python gui/main.py
+~~~
 
-## 📖 Usage
+Direct CLI:
 
-### GUI Mode (Recommended)
+~~~
+.venv/bin/python main.py download \
+  "https://comix.to/title/3ezr0-adopting-the-protagonist-changed-the-genre" \
+  --chapters "38" --format cbz --output downloads
+~~~
 
-```bash
-# Run with GPU rendering (default)
-python gui/main.py
+Interactive CLI:
 
-# Run with CPU/Software rendering (for compatibility)
-python gui/main.py --cpu
-```
+~~~
+.venv/bin/python main.py
+~~~
 
-1. Paste a manga URL from comix.to
-2. Click **FETCH** to load manga info and chapters
-3. Select chapters and choose scanlator preference/filter
-4. Click **DOWNLOAD CHAPTERS**
-5. Access **⚙️ Settings** to configure format, output path, workers
+The GUI and settings menu expose two limits:
 
-### CLI Mode
+- Max chapter workers: concurrent chapter jobs.
+- Max image workers: concurrent image transfers per chapter.
 
-```bash
-# Interactive mode
-python main.py
+Use conservative values if the image host starts rate limiting. The defaults
+are three chapter workers and five image workers.
 
-# Direct download
-python main.py download "https://comix.to/title/abc-manga-name" -c "1-10" -f cbz
-```
+## Browser-free flow
 
----
+~~~
+title page -> main asset -> secure asset
+           -> static Python table extraction
+           -> signed API request
+           -> Python response decryption
+           -> bounded concurrent image downloads
+           -> images, PDF, or CBZ
+~~~
 
-## ⚙️ Settings
+The current chapter request is signed with an asset-derived token in the _
+query parameter. The implementation fails closed if the secure asset shape
+changes instead of silently producing bad data.
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Output Format | images / pdf / cbz | `images` |
-| Keep Images | Retain images after PDF/CBZ conversion | `No` |
-| Enable Logs | Show debug logging | `No` |
-| Download Path | Where to save downloads | `downloads` |
-| Max Chapter Workers | Concurrent chapter downloads | `3` |
-| Max Image Workers | Concurrent image downloads per chapter | `5` |
+The canonical maintainer/AI protocol reference is
+[ARCHITECTURE.md](ARCHITECTURE.md). It explains the complete extraction,
+`QHKXSH` handling, signing, response decryption, failure modes, and validation
+procedure.
 
----
+## Verification
 
-## 📁 Project Structure
+~~~
+.venv/bin/python -m unittest discover -v
+~~~
 
-```
-comix-downloader/
-├── main.py                 # CLI entry point
-├── gui/
-│   ├── main.py             # GUI entry point
-│   ├── bridge/             # Python-QML bridges
-│   └── qml/                # QML UI components
-├── src/
-│   ├── api/comix.py        # API wrapper
-│   ├── core/               # Models & downloader
-│   ├── formats/            # PDF, CBZ, Images
-│   ├── cli/                # CLI application
-│   └── utils/              # Config, logging, session, compatibility helpers
-├── tests/                  # Unit tests
-└── config.json             # User settings
-```
+Live browser-free validation performed on 2026-07-10:
 
----
+- Manga metadata and 522 chapter entries fetched from the signed API.
+- Chapter 38 decrypted to 92 page URLs.
+- Five-worker download generated a valid CBZ with 92 WebPs and ComicInfo.xml.
+- The QML GUI loaded successfully with the browser-free bridges.
 
-## 🔧 Dependencies
+## License
 
-**GUI:**
-- **[PyQt6](https://pypi.org/project/PyQt6/)** - Qt6 bindings for Python
-
-**CLI:**
-- **[Typer](https://typer.tiangolo.com/)** - CLI framework
-- **[Rich](https://rich.readthedocs.io/)** - Beautiful terminal output
-
-**Shared:**
-- **[nodriver](https://github.com/sebdelsol/nodriver)** - Browser automation and canvas image extraction
-- **[Requests](https://requests.readthedocs.io/)** - HTTP library
-- **[Pillow](https://pillow.readthedocs.io/)** - Image processing
-- **[ReportLab](https://www.reportlab.com/)** - PDF generation
-
-> Note: The app includes a small compatibility shim for a `nodriver 0.50.3`
-> source-encoding issue on Python 3.14. No manual edits inside `site-packages`
-> are required.
-
----
-
-## 📜 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## ⚠️ Disclaimer
-
-This tool is for personal use only. Please respect the copyright of manga authors and publishers. Support official releases when available.
-
----
-
-<div align="center">
-
-**Made with ❤️ by [Yui007](https://github.com/Yui007)**
-
-⭐ Star this repo if you find it useful!
-
-</div>
+MIT. The upstream copyright notice is preserved in LICENSE.

@@ -288,8 +288,7 @@ class SettingsMenu:
                 f"  [cyan bold]5[/] │ Max Chapter Workers: [white]{config.max_chapter_workers}[/]",
                 f"  [cyan bold]6[/] │ Max Image Workers: [white]{config.max_image_workers}[/]",
                 f"  [cyan bold]7[/] │ Chapters Display Limit: [white]{display_text}[/]",
-                f"  [cyan bold]8[/] │ Run Browser Headless (nodriver): [white]{'✅ Yes' if config.headless else '❌ No (Show Browser Window)'}[/]",
-                f"  [cyan bold]9[/] │ Reset to Defaults",
+                "  [cyan bold]8[/] │ Reset to Defaults",
                 f"  [cyan bold]0[/] │ Back to Main Menu",
             ]
             
@@ -302,7 +301,7 @@ class SettingsMenu:
             
             choice = Prompt.ask(
                 "\n[bold cyan]Select option to change[/]",
-                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8"],
                 default="0"
             )
             
@@ -379,15 +378,6 @@ class SettingsMenu:
                 console.print(f"[green]Chapters display limit: {display_text}[/]")
             
             elif choice == "8":
-                # Headless mode
-                headless = Confirm.ask(
-                    "[cyan]Run browser headless? (Hides browser window popped up)[/]",
-                    default=config.headless
-                )
-                config_manager.set("headless", headless)
-                console.print(f"[green]Headless browser: {'Yes' if headless else 'No'}[/]")
-            
-            elif choice == "9":
                 # Reset to defaults
                 if Confirm.ask("[yellow]Reset all settings to defaults?[/]", default=False):
                     config_manager.reset_to_defaults()

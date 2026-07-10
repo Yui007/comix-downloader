@@ -56,17 +56,15 @@ def main():
     
     # Enable high DPI scaling
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+    # Must be set before QApplication so QML custom controls render correctly.
+    os.environ["QT_QUICK_CONTROLS_STYLE"] = "Fusion"
     
     app = QApplication(sys.argv)
-    app.setApplicationName("Comix Downloader")
+    app.setApplicationName("Comix Downloader — Browser Free")
     app.setOrganizationName("ComixDownloader")
     
     # Load fonts
     load_fonts()
-    
-    # Force Fusion style via environment variable to avoid DLL loading issues with native styles
-    # This also avoids needing the PyQt6.QtQuickControls2 module which might be missing
-    os.environ["QT_QUICK_CONTROLS_STYLE"] = "Fusion"
     
     # Create QML engine
     engine = QQmlApplicationEngine()
@@ -100,4 +98,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

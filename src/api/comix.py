@@ -1,617 +1,251 @@
+"""Browser-free Comix API wrapper.
+
+The original upstream implementation used nodriver, page rendering, canvas
+extraction, and persisted browser cookies. This replacement uses curl_cffi
+plus the static Python secure-module extractor in src.api.secure.
 """
-Comix.to API wrapper for manga information and chapter data.
-"""
+from __future__ import annotations
 
 import json
+import logging
 import re
-import asyncio
 import threading
-from typing import Optional
-from ..utils.retry import retry_with_backoff
-from ..utils.logger import get_logger
-from ..utils.session import get_session
-from ..utils.hash import generate_comix_hash
-from ..utils.nodriver_compat import load_cdp_page, load_nodriver
+from dataclasses import dataclass
+from typing import Any, Optional
+from urllib.parse import urljoin
 
-logger = get_logger(__name__)
+from curl_cffi import requests
 
-# Global lock to synchronize browser creation and cookie loading/saving across threads
-_browser_lock = threading.Lock()
+from ..core.models import Chapter, MangaInfo
+from .secure import SecurePlan, decrypt_response, extract_plan, signed_token
 
 
-def run_async(coro):
-    """Run an async coroutine synchronously."""
-    return asyncio.run(coro)
+logger = logging.getLogger(__name__)
+SITE = "https://comix.to"
+API = f"{SITE}/api/v1"
+API_HEADERS = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"}
+
+
+@dataclass(frozen=True)
+class ChapterPage:
+    url: str
+    width: int | None = None
+    height: int | None = None
+
+
+class BrowserFreeComix:
+    """Immutable secure plan plus manga-page metadata safe for worker reuse."""
+
+    def __init__(self, page_url: str, manga_code: str):
+        self.page_url = page_url
+        self.manga_code = manga_code
+        self._plan: SecurePlan | None = None
+        self._detail: dict[str, Any] | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def plan(self) -> SecurePlan:
+        self._ensure_loaded()
+        assert self._plan is not None
+        return self._plan
+
+    @property
+    def detail(self) -> dict[str, Any]:
+        self._ensure_loaded()
+        assert self._detail is not None
+        return self._detail
+
+    def _ensure_loaded(self) -> None:
+        if self._plan is not None and self._detail is not None:
+            return
+        with self._lock:
+            if self._plan is not None and self._detail is not None:
+                return
+            session = requests.Session(impersonate="chrome")
+            page = session.get(self.page_url, timeout=30)
+            page.raise_for_status()
+            initial = _initial_data(page.text)
+            detail = _manga_detail(initial, self.manga_code)
+            main_url = _main_asset_url(page.url, page.text)
+            main = session.get(main_url, timeout=30)
+            main.raise_for_status()
+            secure_match = re.search(r"(?:\./)?(secure-[A-Za-z0-9._-]+\.js)", main.text)
+            if secure_match is None:
+                raise RuntimeError("could not find a secure module in the main asset")
+            secure = session.get(urljoin(main_url, secure_match.group(1)), timeout=30)
+            secure.raise_for_status()
+            self._plan = extract_plan(secure.text)
+            self._detail = detail
+
+    def get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """Make one signed API request; every request receives a fresh TLS session."""
+        plan = self.plan
+        request_params = dict(params or {})
+        request_params[plan.token_parameter] = signed_token(path, request_params, plan)
+        response = requests.get(
+            f"{API}{path}",
+            params=request_params,
+            impersonate="chrome",
+            headers={**API_HEADERS, "Referer": self.page_url, "Origin": SITE},
+            timeout=30,
+        )
+        response.raise_for_status()
+        body = response.json()
+        if "e" in body:
+            return decrypt_response(body["e"], plan)
+        return body
+
+
+def _initial_data(html: str) -> dict[str, Any]:
+    match = re.search(
+        r"<script\b(?=[^>]*\bid=[\"']initial-data[\"'])[^>]*>(.*?)</script>",
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match is None:
+        raise RuntimeError("page did not include initial-data")
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError as error:
+        raise RuntimeError("initial-data was not valid JSON") from error
+
+
+def _manga_detail(initial: dict[str, Any], manga_code: str) -> dict[str, Any]:
+    queries = initial.get("queries", {})
+    for value in queries.values():
+        if isinstance(value, dict) and value.get("hid") == manga_code:
+            return value
+    for value in queries.values():
+        if isinstance(value, dict) and value.get("id") and value.get("url", "").startswith(f"/title/{manga_code}"):
+            return value
+    raise RuntimeError(f"could not find manga detail for {manga_code!r} in initial-data")
+
+
+def _main_asset_url(page_url: str, html: str) -> str:
+    scripts = re.findall(r"<script\b[^>]*\bsrc=[\"']([^\"']+\.js)[\"']", html, flags=re.IGNORECASE)
+    main_path = next(
+        (item for item in scripts if "/main-" in item or item.rsplit("/", 1)[-1].startswith("main-")),
+        None,
+    )
+    if main_path is None:
+        raise RuntimeError("could not find a main JavaScript asset")
+    return urljoin(page_url, main_path)
 
 
 class ComixAPI:
-    """API wrapper for comix.to"""
-    
-    BASE_URL = "https://comix.to/api/v2"
-    
+    """Compatibility facade used by the retained CLI and PyQt GUI."""
+
+    _clients: dict[str, BrowserFreeComix] = {}
+    _clients_lock = threading.Lock()
+
     @staticmethod
     def extract_manga_code(url: str) -> str:
-        """
-        Extract manga code from the title URL.
-        Example: https://comix.to/title/93q1r-the-summoner -> 93q1r
-        """
-        parts = url.rstrip("/").split("/")
-        last = parts[-1] if parts[-1] else parts[-2]
-        code = last.split("-")[0]
-        logger.debug(f"Extracted manga code: {code} from URL: {url}")
-        return code
-    
-    @classmethod
-    async def _get_manga_info_async(cls, manga_code: str, headless: bool) -> Optional[str]:
-        uc = load_nodriver()
-        from pathlib import Path
-        
-        url = f"https://comix.to/title/{manga_code}"
-        cookie_file = Path("cf_cookies.dat")
-        
-        _browser_lock.acquire()
-        try:
-            browser = await uc.start(
-                headless=headless,
-                browser_args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-ipc-flooding-protection",
-                ]
-            )
-            
-            if cookie_file.exists():
-                try:
-                    await browser.cookies.load(str(cookie_file))
-                    logger.info(f"Loaded cookies from {cookie_file}")
-                except Exception as e:
-                    logger.warning(f"Failed loading cookies: {e}")
-        finally:
-            _browser_lock.release()
-        
-        try:
-            page = await browser.get(url)
-            await page.sleep(5)
-            
-            title = await page.evaluate("document.title")
-            if "moment" in title.lower():
-                logger.warning("Cloudflare challenge detected.")
-                if headless:
-                    logger.error("Cannot solve Cloudflare challenge in headless mode. Run with headless=False first.")
-                else:
-                    print("\n[!] Still on the Cloudflare challenge page.")
-                    print("[!] Solve the checkbox manually in the browser window now.")
-                    input("    Press ENTER *after* the page has fully loaded (title changes)...\n")
-                    await page
-                    title = await page.evaluate("document.title")
-            
-            script_content = None
-            for _ in range(20):
-                script_content = await page.evaluate(
-                    "document.getElementById('initial-data') ? document.getElementById('initial-data').innerHTML : null"
-                )
-                if script_content:
-                    break
-                await page.sleep(0.5)
-                
-            if "moment" not in title.lower():
-                _browser_lock.acquire()
-                try:
-                    await browser.cookies.save(str(cookie_file), pattern=".*")
-                    logger.info(f"Saved cookies to {cookie_file}")
-                except Exception as e:
-                    logger.warning(f"Failed saving cookies: {e}")
-                finally:
-                    _browser_lock.release()
-                
-            return script_content
-            
-        finally:
-            browser.stop()
-            
-    @classmethod
-    def get_manga_info(cls, manga_code: str, headless: Optional[bool] = None) -> Optional[any]:
-        """Fetch manga information from DOM using nodriver."""
-        from ..core.models import MangaInfo
-        if headless is None:
-            from ..utils.config import ConfigManager
-            headless = ConfigManager().get("headless", True)
-            
-        logger.info(f"Fetching manga info using nodriver (headless={headless}) for {manga_code}...")
-        
-        try:
-            initial_data_str = run_async(cls._get_manga_info_async(manga_code, headless))
-            if not initial_data_str:
-                return None
-            json_data = json.loads(initial_data_str)
-        except Exception as e:
-            logger.error(f"nodriver failed to fetch manga info for {manga_code}: {e}")
-            return None
+        match = re.search(r"/title/([a-z0-9]+)(?:[-/]|$)", url, flags=re.IGNORECASE)
+        if match is None:
+            raise ValueError("expected a comix.to title URL")
+        return match.group(1)
 
-        # Find the manga detail query in the json_data
-        manga_detail = None
-        queries = json_data.get("queries", {})
-        for key, val in queries.items():
-            if "manga" in key and "detail" in key and manga_code in key:
-                manga_detail = val
-                break
-                
-        if not manga_detail:
-            logger.error(f"Could not find manga detail in initial-data for {manga_code}. Keys: {list(queries.keys())}")
-            return None
-            
-        # Get alt titles safely
-        alt_titles = manga_detail.get("altTitles", [])
-        if not isinstance(alt_titles, list):
-            alt_titles = [alt_titles] if alt_titles else []
-            
-        # Poster URL
-        poster = manga_detail.get("poster") or {}
-        poster_url = None
-        if isinstance(poster, dict):
-            poster_url = poster.get("large") or poster.get("medium")
-            
-        genres = []
-        for g in manga_detail.get("genres", []):
-            if isinstance(g, dict) and "title" in g:
-                genres.append(g["title"])
-            elif isinstance(g, str):
-                genres.append(g)
+    @classmethod
+    def _client(cls, manga_code: str) -> BrowserFreeComix:
+        with cls._clients_lock:
+            client = cls._clients.get(manga_code)
+            if client is None:
+                client = BrowserFreeComix(f"{SITE}/title/{manga_code}", manga_code)
+                cls._clients[manga_code] = client
+        client._ensure_loaded()
+        return client
 
+    @classmethod
+    def get_manga_info(cls, manga_code: str) -> MangaInfo:
+        """Fetch manga detail from the server-rendered title page."""
+        detail = cls._client(manga_code).detail
+        poster = detail.get("poster") if isinstance(detail.get("poster"), dict) else {}
         return MangaInfo(
-            manga_id=manga_detail.get("id"),
-            hash_id=manga_detail.get("hid"),
-            title=manga_detail.get("title", "Unknown"),
-            alt_titles=alt_titles,
-            slug=manga_detail.get("url", "").split("/")[-1] if manga_detail.get("url") else None,
-            rank=manga_detail.get("rank"),
-            manga_type=manga_detail.get("type"),
-            poster_url=poster_url,
-            original_language=manga_detail.get("originalLanguage"),
-            status=manga_detail.get("status"),
-            final_chapter=str(manga_detail.get("finalChapter") or 0),
-            latest_chapter=str(manga_detail.get("latestChapter") or 0),
-            start_date=manga_detail.get("startDate"),
-            end_date=manga_detail.get("endDate"),
-            rated_avg=manga_detail.get("ratedAvg"),
-            rated_count=manga_detail.get("ratedCount"),
-            follows_total=manga_detail.get("followsTotal"),
-            is_nsfw=manga_detail.get("contentRating") == "nsfw",
-            year=manga_detail.get("year"),
-            genres=genres,
-            description=manga_detail.get("synopsis", "")
+            manga_id=detail.get("id"),
+            hash_id=detail.get("hid"),
+            title=detail.get("title", "Unknown"),
+            alt_titles=detail.get("altTitles") if isinstance(detail.get("altTitles"), list) else [],
+            slug=(detail.get("url") or "").rsplit("/", 1)[-1] or manga_code,
+            rank=detail.get("rank"),
+            manga_type=detail.get("type"),
+            poster_url=poster.get("large") or poster.get("medium"),
+            original_language=detail.get("originalLanguage"),
+            status=detail.get("status"),
+            final_chapter=str(detail.get("finalChapter") or 0),
+            latest_chapter=str(detail.get("latestChapter") or 0),
+            start_date=detail.get("startDate"),
+            end_date=detail.get("endDate"),
+            rated_avg=detail.get("ratedAvg"),
+            rated_count=detail.get("ratedCount"),
+            follows_total=detail.get("followsTotal"),
+            is_nsfw=detail.get("contentRating") == "nsfw",
+            year=detail.get("year"),
+            genres=detail.get("genres") if isinstance(detail.get("genres"), list) else [],
+            description=detail.get("synopsis", ""),
         )
-    
-    @classmethod
-    async def _get_all_chapters_async(cls, manga_code: str, headless: bool) -> list[dict]:
-        uc = load_nodriver()
-        from pathlib import Path
-        
-        url = f"https://comix.to/title/{manga_code}"
-        cookie_file = Path("cf_cookies.dat")
-        
-        _browser_lock.acquire()
-        try:
-            browser = await uc.start(
-                headless=headless,
-                browser_args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-ipc-flooding-protection",
-                ]
-            )
-            
-            if cookie_file.exists():
-                try:
-                    await browser.cookies.load(str(cookie_file))
-                    logger.info(f"Loaded cookies from {cookie_file}")
-                except Exception as e:
-                    logger.warning(f"Failed loading cookies: {e}")
-        finally:
-            _browser_lock.release()
-                
-        scrape_js = """(() => {
-            const rows = Array.from(document.querySelectorAll('.mchap-item')).map(li => {
-                const a = li.querySelector('.mchap-row__primary');
-                const ch = li.querySelector('.mchap-row__ch');
-                const ti = li.querySelector('.mchap-row__title');
-                const gp = li.querySelector('.mchap-row__group');
-                return {
-                    href: a ? a.getAttribute('href') : null,
-                    chap_label: ch ? ch.textContent.trim() : null,
-                    title: ti ? ti.textContent.trim() : null,
-                    group: gp ? (gp.querySelector('span') ? gp.querySelector('span').textContent.trim() : gp.textContent.trim()) : null,
-                    group_official: gp ? gp.classList.contains('is-official') : false,
-                };
-            });
-            return JSON.stringify(rows);
-        })()"""
-        
-        all_rows = []
-        seen_ids = set()
-        
-        try:
-            page = await browser.get(url)
-            await page.sleep(5)
-            
-            title = await page.evaluate("document.title")
-            if "moment" in title.lower():
-                logger.warning("Cloudflare challenge detected.")
-                if headless:
-                    logger.error("Cannot solve Cloudflare challenge in headless mode. Run with headless=False first.")
-                else:
-                    print("\n[!] Still on the Cloudflare challenge page.")
-                    print("[!] Solve the checkbox manually in the browser window now.")
-                    input("    Press ENTER *after* the page has fully loaded (title changes)...\n")
-                    await page
-                    title = await page.evaluate("document.title")
-            
-            prev_first_href = None
-            consecutive_dup_pages = 0
-            max_pages = 200
-            
-            for page_n in range(1, max_pages + 1):
-                page_url = f"{url}?page={page_n}"
-                if page_n > 1 or page_url != page.url:
-                    await page.get(page_url)
-                    
-                rows = []
-                for _ in range(20):
-                    rows_str = await page.evaluate(scrape_js)
-                    rows = json.loads(rows_str) if rows_str else []
-                    if rows:
-                        if prev_first_href is None or rows[0].get("href") != prev_first_href:
-                            break
-                    await page.sleep(0.2)
-                
-                if not rows:
-                    break
-                    
-                prev_first_href = rows[0].get("href")
-                page_added = 0
-                
-                for row in rows:
-                    href = row.get("href")
-                    if not href:
-                        continue
-                    
-                    # Parse `/title/{slug}/{chap_id}-chapter-{chap_num}`
-                    m = re.match(r".*/title/[^/]+/(\d+)-chapter-(.+)$", href)
-                    if not m:
-                        continue
-                    
-                    chap_id_str, chap_num_str = m.group(1), m.group(2)
-                    if chap_id_str in seen_ids:
-                        continue
-                        
-                    seen_ids.add(chap_id_str)
-                    
-                    group = row.get("group")
-                    if not group and row.get("group_official"):
-                        group = "Official"
-                        
-                    all_rows.append({
-                        "chapter_id": int(chap_id_str),
-                        "number": chap_num_str,
-                        "title": row.get("title") or f"Chapter {chap_num_str}",
-                        "group_name": group,
-                    })
-                    page_added += 1
-                    
-                if page_added == 0:
-                    consecutive_dup_pages += 1
-                    if consecutive_dup_pages >= 2:
-                        break
-                else:
-                    consecutive_dup_pages = 0
-            
-            if "moment" not in title.lower():
-                _browser_lock.acquire()
-                try:
-                    await browser.cookies.save(str(cookie_file), pattern=".*")
-                    logger.info(f"Saved cookies to {cookie_file}")
-                except Exception as e:
-                    logger.warning(f"Failed saving cookies: {e}")
-                finally:
-                    _browser_lock.release()
-                
-            return all_rows
-        finally:
-            browser.stop()
 
     @classmethod
-    def get_all_chapters(cls, manga_code: str, headless: Optional[bool] = None) -> list[any]:
-        """Fetch all chapters for a manga using nodriver DOM scraping."""
-        from ..core.models import Chapter
-        if headless is None:
-            from ..utils.config import ConfigManager
-            headless = ConfigManager().get("headless", True)
-            
-        logger.info(f"Scraping chapters using nodriver (headless={headless}) for {manga_code}...")
-        
+    def get_all_chapters(cls, manga_code: str) -> list[Chapter]:
+        """Fetch chapter pages directly from the signed API, without DOM scraping."""
+        client = cls._client(manga_code)
         chapters: list[Chapter] = []
-        try:
-            rows = run_async(cls._get_all_chapters_async(manga_code, headless))
-            for row in rows:
-                chapters.append(Chapter(
-                    chapter_id=row["chapter_id"],
-                    number=row["number"],
-                    title=row["title"],
-                    volume=None,
-                    votes=0,
-                    group_name=row["group_name"],
-                    pages_count=0
-                ))
-        except Exception as e:
-            logger.error(f"nodriver failed to fetch chapters for {manga_code}: {e}")
-            
-        # Reverse the list so old chapters (low numbers) are at the beginning
-        chapters.reverse()
-        logger.info(f"Found {len(chapters)} chapters using nodriver DOM scraping")
+        seen: set[int] = set()
+        page = 1
+        while True:
+            result = client.get(f"/manga/{manga_code}/chapters", {"page": page})
+            items = result.get("items", []) if isinstance(result, dict) else []
+            for item in items:
+                chapter_id = item.get("id")
+                if not isinstance(chapter_id, int) or chapter_id in seen:
+                    continue
+                seen.add(chapter_id)
+                group = item.get("group") if isinstance(item.get("group"), dict) else {}
+                chapters.append(
+                    Chapter(
+                        chapter_id=chapter_id,
+                        number=str(item.get("number", "?")),
+                        title=item.get("name") or None,
+                        volume=str(item["volume"]) if item.get("volume") else None,
+                        votes=item.get("votes"),
+                        group_name=group.get("name") or ("Official" if item.get("isOfficial") else "Unknown"),
+                        pages_count=0,
+                    )
+                )
+            meta = result.get("meta", {}) if isinstance(result, dict) else {}
+            last_page = meta.get("lastPage") or meta.get("last_page") or page
+            if not items or page >= int(last_page):
+                break
+            page += 1
+        chapters.sort(key=lambda item: (float(item.number) if _is_number(item.number) else float("inf"), item.chapter_id))
         return chapters
-    
-    @classmethod
-    async def _get_chapter_images_async(
-        cls, chapter_id: int, manga_slug: str, chapter_number: str, headless: bool
-    ) -> tuple[list[str], int]:
-        uc = load_nodriver()
-        from pathlib import Path
-        
-        chapter_url = f"https://comix.to/title/{manga_slug}/{chapter_id}-chapter-{chapter_number}"
-        cookie_file = Path("cf_cookies.dat")
-        
-        _browser_lock.acquire()
-        try:
-            browser = await uc.start(
-                headless=headless,
-                browser_args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-ipc-flooding-protection",
-                ]
-            )
-            
-            if cookie_file.exists():
-                try:
-                    await browser.cookies.load(str(cookie_file))
-                    logger.info(f"Loaded cookies from {cookie_file}")
-                except Exception as e:
-                    logger.warning(f"Failed loading cookies: {e}")
-        finally:
-            _browser_lock.release()
-                
-        image_urls = []
-        page_count = 0
-        
-        try:
-            # Setup init script to backup original toDataURL and set localStorage reader.default preload config
-            page = browser.main_tab
-            try:
-                cdp_page = load_cdp_page()
-                await page.send(cdp_page.enable())
-                init_js = """
-                try {
-                    window.__origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-                    const k = 'reader.default';
-                    const cur = JSON.parse(localStorage.getItem(k) || '{}');
-                    cur.preload = 'all';
-                    localStorage.setItem(k, JSON.stringify(cur));
-                } catch (e) {}
-                """
-                await page.send(cdp_page.add_script_to_evaluate_on_new_document(source=init_js))
-            except Exception as e:
-                logger.warning(f"Failed to setup page init script: {e}")
-                
-            # Now navigate directly to chapter page
-            page = await browser.get(chapter_url)
-            
-            # Wait for reader page elements to load OR Cloudflare challenge
-            cloudflare_detected = False
-            for _ in range(150):
-                try:
-                    title = await page.evaluate("document.title") or ""
-                    if "moment" in title.lower():
-                        cloudflare_detected = True
-                        break
-                    page_count = await page.evaluate("document.querySelectorAll('.rpage-page').length") or 0
-                    if page_count > 0:
-                        break
-                except Exception:
-                    pass
-                await page.sleep(0.2)
-            
-            if cloudflare_detected:
-                logger.warning("Cloudflare challenge detected.")
-                if headless:
-                    logger.error("Cannot solve Cloudflare challenge in headless mode. Run with headless=False first.")
-                    return [], 0
-                else:
-                    print("\n[!] Still on the Cloudflare challenge page.")
-                    print("[!] Solve the checkbox manually in the browser window now.")
-                    input("    Press ENTER *after* the page has fully loaded (title changes)...\n")
-                    await page
-                    # Re-verify page count after manual solving
-                    for _ in range(150):
-                        try:
-                            page_count = await page.evaluate("document.querySelectorAll('.rpage-page').length") or 0
-                            if page_count > 0:
-                                break
-                        except Exception:
-                            pass
-                        await page.sleep(0.2)
-                
-            if page_count == 0:
-                logger.error(f"Chapter page had no pages in DOM: {chapter_url}")
-                return [], 0
-                
-            # Wait for first page to begin rendering
-            for _ in range(150):
-                try:
-                    first_ready = await page.evaluate(
-                        "document.querySelector('.rpage-page[data-page=\"1\"] canvas, .rpage-page[data-page=\"1\"] img') ? true : false"
-                    )
-                    if first_ready:
-                        break
-                except Exception:
-                    pass
-                await page.sleep(0.2)
-                
-            logger.info(f"Chapter has {page_count} pages. Extracting content...")
-            
-            for page_num in range(1, page_count + 1):
-                # Scroll page element into view to trigger render/decryption
-                try:
-                    await page.evaluate(
-                        f"(() => {{ const el = document.querySelector('.rpage-page[data-page=\"{page_num}\"]'); if (el) el.scrollIntoView({{behavior: 'instant', block: 'center'}}); }})()"
-                    )
-                except Exception:
-                    pass
-                    
-                # Wait for image element or canvas element to be ready
-                ready = None
-                for _attempt in range(150):
-                    try:
-                        ready_res = await page.evaluate(
-                            f"""(() => {{
-                                const el = document.querySelector('.rpage-page[data-page="{page_num}"]');
-                                if (!el) return null;
-                                const isLoading = el.classList.contains('is-loading');
-                                
-                                // Check canvas
-                                const c = el.querySelector('canvas');
-                                if (c && c.width > 10 && c.height > 10) {{
-                                    if (isLoading) return null; // Wait if still loading
-                                    const toDataURL = window.__origToDataURL || c.toDataURL;
-                                    const data = toDataURL.call(c, 'image/webp', 0.95);
-                                    if (data.length < 20000) {{
-                                        return JSON.stringify({{type: 'skip'}}); // Blank/Ad canvas
-                                    }}
-                                    return JSON.stringify({{type: 'canvas_data', data: data}});
-                                }}
-                                
-                                // Check image
-                                const i = el.querySelector('img');
-                                if (i && i.src) {{
-                                    if (i.complete) {{
-                                        if (i.naturalWidth > 10 && i.naturalHeight > 10) {{
-                                            return JSON.stringify({{type: 'img', src: i.src}});
-                                        }}
-                                        if (i.naturalWidth > 0 && i.naturalWidth <= 10) {{
-                                            return JSON.stringify({{type: 'skip'}}); // 1x1 placeholder
-                                        }}
-                                    }}
-                                }}
-                                return null;
-                            }})()"""
-                        )
-                        ready = json.loads(ready_res) if ready_res else None
-                    except Exception:
-                        ready = None
-                    if ready:
-                        break
-                    await page.sleep(0.2)
-                    
-                if not ready:
-                    logger.error(f"Page {page_num} timed out waiting for render.")
-                    continue
-                    
-                if ready.get('type') == 'skip':
-                    logger.debug(f"Page {page_num} is an ad/placeholder page. Skipping.")
-                    continue
-                    
-                if ready.get('type') == 'canvas_data':
-                    image_urls.append(ready.get('data'))
-                    continue
-                    
-                # Extract image data or URL from image
-                try:
-                    extracted_url = await page.evaluate(
-                        f"""(() => {{
-                            try {{
-                                const el = document.querySelector('.rpage-page[data-page="{page_num}"]');
-                                if (!el) return null;
-                                
-                                const c = el.querySelector('canvas');
-                                if (c && c.width > 0 && c.height > 0) {{
-                                    const toDataURL = window.__origToDataURL || c.toDataURL;
-                                    return toDataURL.call(c, 'image/webp', 0.95);
-                                }}
-                                
-                                const i = el.querySelector('img');
-                                if (i && i.src) {{
-                                    if (i.src.startsWith('blob:')) {{
-                                        try {{
-                                            const canvas = document.createElement('canvas');
-                                            canvas.width = i.naturalWidth || i.width;
-                                            canvas.height = i.naturalHeight || i.height;
-                                            const ctx = canvas.getContext('2d');
-                                            ctx.drawImage(i, 0, 0);
-                                            const toDataURL = window.__origToDataURL || canvas.toDataURL;
-                                            return toDataURL.call(canvas, 'image/webp', 0.95);
-                                        }} catch (e) {{
-                                            return null;
-                                        }}
-                                    }}
-                                    return i.src;
-                                }}
-                                return null;
-                            }} catch (e) {{
-                                return null;
-                            }}
-                        }})()"""
-                    )
-                except Exception as e:
-                    logger.error(f"Page {page_num} extraction failed: {e}")
-                    continue
-                    
-                if extracted_url:
-                    image_urls.append(extracted_url)
-                else:
-                    logger.error(f"Page {page_num} failed to extract valid URL or data.")
-            
-            if "moment" not in title.lower():
-                _browser_lock.acquire()
-                try:
-                    await browser.cookies.save(str(cookie_file), pattern=".*")
-                    logger.info(f"Saved cookies to {cookie_file}")
-                except Exception as e:
-                    logger.warning(f"Failed saving cookies: {e}")
-                finally:
-                    _browser_lock.release()
-                
-            return image_urls, page_count
-        finally:
-            browser.stop()
 
     @classmethod
-    def get_chapter_images(cls, chapter_id: int, manga_slug: str = None, chapter_number: str = None, headless: Optional[bool] = None) -> list[str]:
-        """Fetch all image URLs / data URLs for a chapter using nodriver."""
-        if headless is None:
-            from ..utils.config import ConfigManager
-            headless = ConfigManager().get("headless", True)
-            
-        if not manga_slug or not chapter_number:
-            manga_slug = "manga"
-            chapter_number = "1"
-            
-        chapter_url = f"https://comix.to/title/{manga_slug}/{chapter_id}-chapter-{chapter_number}"
-        logger.info(f"Fetching chapter images via nodriver DOM (headless={headless}) for {chapter_url}...")
-        
-        image_urls = []
-        page_count = 0
-        try:
-            image_urls, page_count = run_async(cls._get_chapter_images_async(chapter_id, manga_slug, chapter_number, headless))
-        except Exception as e:
-            logger.error(f"nodriver failed to fetch images for chapter {chapter_id}: {e}")
-            
-        logger.info(f"Retrieved {len(image_urls)} / {page_count} page images.")
-        return image_urls
+    def get_chapter_pages(cls, chapter_id: int, manga_slug: str, chapter_number: str) -> list[ChapterPage]:
+        manga_code = manga_slug.split("-", 1)[0]
+        result = cls._client(manga_code).get(f"/chapters/{chapter_id}")
+        pages = result.get("pages", {}).get("items", []) if isinstance(result, dict) else []
+        return [
+            ChapterPage(item["url"], item.get("width"), item.get("height"))
+            for item in pages
+            if isinstance(item, dict) and item.get("url")
+        ]
+
+    @classmethod
+    def get_chapter_images(
+        cls,
+        chapter_id: int,
+        manga_slug: str | None = None,
+        chapter_number: str | None = None,
+    ) -> list[str]:
+        """Return direct WebP page URLs for the retained downloader interface."""
+        if not manga_slug or chapter_number is None:
+            raise ValueError("manga_slug and chapter_number are required by the browser-free API")
+        return [page.url for page in cls.get_chapter_pages(chapter_id, manga_slug, str(chapter_number))]
+
+
+def _is_number(value: str) -> bool:
+    try:
+        float(value)
+        return True
+    except (TypeError, ValueError):
+        return False

@@ -16,7 +16,7 @@ ApplicationWindow {
     minimumWidth: 900
     minimumHeight: 650
     visible: true
-    title: "Comix Downloader"
+    title: "Comix Downloader — Browser Free"
     color: bgDeep
     
     flags: Qt.FramelessWindowHint | Qt.Window

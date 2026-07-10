@@ -1,7 +1,6 @@
 typer[all]
 rich
-requests
+curl_cffi
 Pillow
 reportlab
-pyqt6
-nodriver
+PyQt6>=6.6

@@ -71,16 +71,6 @@ class SettingsBridge(QObject):
         self._config_manager.set("max_image_workers", max(1, min(20, value)))
         self.settingsChanged.emit()
         
-    # Headless
-    @pyqtProperty(bool, notify=settingsChanged)
-    def headless(self):
-        return self._config_manager.get("headless", True)
-    
-    @headless.setter
-    def headless(self, value: bool):
-        self._config_manager.set("headless", value)
-        self.settingsChanged.emit()
-    
     # Slots for QML
     @pyqtSlot(str, 'QVariant')
     def setValue(self, key: str, value):

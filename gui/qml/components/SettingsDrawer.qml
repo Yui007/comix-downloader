@@ -123,12 +123,13 @@ Rectangle {
                     }
                 }
                 
-                // Run Browser Headless
+                // Browser-free engine status
                 SettingItem {
-                    label: "Run Browser Headless (nodriver)"
-                    ToggleSwitch {
-                        checked: SettingsBridge ? SettingsBridge.headless : true
-                        onToggled: if (SettingsBridge) SettingsBridge.setValue("headless", checked)
+                    label: "Reader Engine"
+                    Text {
+                        text: "Browser-free: curl_cffi + static Python decryption"
+                        color: success
+                        font.pixelSize: 12
                     }
                 }
                 

@@ -24,7 +24,6 @@ class ConfigManager:
         "retry_count": 3,
         "retry_delay": 2.0,
         "chapters_display_limit": 20,  # 0 = show all
-        "headless": True
     }
     
     def __init__(self, config_path: str | Path = "config.json"):
@@ -75,7 +74,6 @@ class ConfigManager:
             download_path=self.get("download_path", "downloads"),
             retry_count=self.get("retry_count", 3),
             retry_delay=self.get("retry_delay", 2.0),
-            headless=self.get("headless", True)
         )
     
     def update_from_download_config(self, config: DownloadConfig) -> None:
@@ -89,7 +87,6 @@ class ConfigManager:
             "download_path": config.download_path,
             "retry_count": config.retry_count,
             "retry_delay": config.retry_delay,
-            "headless": config.headless
         })
         self.save()
     
