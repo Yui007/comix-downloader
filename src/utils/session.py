@@ -31,7 +31,6 @@ class SessionManager:
     def _headers() -> dict[str, str]:
         credentials = get_comix_credentials()
         return {
-            "Referer": "https://comix.to/",
             "User-Agent": credentials.user_agent or (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -92,6 +91,10 @@ class SessionManager:
             headers.setdefault("Cookie", credentials.cookie_header)
             kwargs["headers"] = headers
 
+        _h = dict(kwargs.get("headers") or {})
+        if host == "comix.to" or host.endswith(".comix.to"):
+            _h.setdefault("Referer", "https://comix.to/")
+        kwargs["headers"] = _h
         return session.get(url, **kwargs)
 
 
