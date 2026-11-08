@@ -31,7 +31,6 @@ class SessionManager:
     def _headers() -> dict[str, str]:
         credentials = get_comix_credentials()
         return {
-            "Referer": "https://comix.to/",
             "User-Agent": credentials.user_agent or (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -83,14 +82,18 @@ class SessionManager:
         if credentials.user_agent:
             session.headers["User-Agent"] = credentials.user_agent
 
-        # Browser cookies are restricted to Comix domains.  In particular, do
-        # not leak them to the independent image CDN hosts.
+        # Browser cookies and the Comix Referer are restricted to Comix domains.
+        # In particular, do not leak them to the independent image CDN hosts,
+        # which answer 403 when the Comix Referer is present.
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
-        if credentials.cookie_header and (host == "comix.to" or host.endswith(".comix.to")):
-            headers = dict(kwargs.get("headers") or {})
+        is_comix_host = host == "comix.to" or host.endswith(".comix.to")
+        headers = dict(kwargs.get("headers") or {})
+        if credentials.cookie_header and is_comix_host:
             headers.setdefault("Cookie", credentials.cookie_header)
-            kwargs["headers"] = headers
+        if is_comix_host:
+            headers.setdefault("Referer", "https://comix.to/")
+        kwargs["headers"] = headers
 
         return session.get(url, **kwargs)
 
